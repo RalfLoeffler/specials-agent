@@ -99,6 +99,39 @@ Once tested, configure email settings and run normally:
 python -m src.main
 ```
 
+## Alternative Scraping Methods
+
+**Recommended:** Use alternative methods instead of direct website scraping:
+
+### � PDF Catalogue Parser (Best Option!)
+Extract products from PDF catalogues - most complete and reliable!
+
+```bash
+python -m src.pdf_parser catalogue.pdf
+```
+
+See [pdf_parser.py](src/pdf_parser.py) and [ALTERNATIVE_METHODS.md](ALTERNATIVE_METHODS.md)
+
+### �📧 Email Newsletter Parsing
+Monitor your email for store newsletters - highlights and deals!
+
+```bash
+python -m src.email_parser
+```
+
+See [email_parser.py](src/email_parser.py) and [ALTERNATIVE_METHODS.md](ALTERNATIVE_METHODS.md)
+
+### 🌐 Lasoo Catalogue Scraper
+Scrape from Lasoo.com.au (catalogue aggregator) - easier than direct scraping:
+
+```bash
+python -m src.lasoo_scraper
+```
+
+See [lasoo_scraper.py](src/lasoo_scraper.py) and [ALTERNATIVE_METHODS.md](ALTERNATIVE_METHODS.md)
+
+**Read [ALTERNATIVE_METHODS.md](ALTERNATIVE_METHODS.md) for full comparison and setup guides!**
+
 ## Development
 
 ### Code Quality Tools
