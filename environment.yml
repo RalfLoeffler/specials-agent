@@ -1,0 +1,14 @@
+name: specials-agent
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  - pip
+  - pip:
+      - playwright>=1.40.0
+      - black>=23.0.0
+      - flake8>=6.0.0
+      - mypy>=1.7.0
+      - pytest>=7.4.0
+      - pytest-playwright>=0.4.0
