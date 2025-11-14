@@ -6,6 +6,11 @@ __pycache__/
 # C extensions
 *.so
 
+# Browser session files (contain personal data - cookies, location)
+browser_session.json
+auth.json
+*.session.json
+
 # Distribution / packaging
 .Python
 build/

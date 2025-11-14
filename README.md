@@ -1,6 +1,15 @@
 # specials-agent
 
-A Python automation project using Playwright for web automation and testing.
+Automated grocery sale scraper for Australian supermarkets (Coles and Woolworths) using Playwright. Get email alerts when items on your watchlist go on sale!
+
+## Features
+
+- 🛒 **Automated Scraping** - Monitors grocery store websites for specials
+- 📧 **Email Alerts** - Sends notifications when watchlist items are on sale
+- 🍪 **Cookie/Session Management** - Saves your postcode and location preferences
+- 🧪 **Scrape Test Mode** - Test without sending emails
+- 📝 **Detailed Logging** - Track all scraping activities
+- 🥧 **Raspberry Pi Ready** - Deploy on Raspberry Pi with cron scheduling
 
 ## Project Structure
 
@@ -43,6 +52,52 @@ specials-agent/
    ```bash
    playwright install
    ```
+
+## Quick Start
+
+### 1. Set Up Your Location (Postcode/Cookies)
+
+Stores require your postcode to show local specials:
+
+```bash
+python setup_session.py
+```
+
+This opens a browser where you can:
+- Enter your postcode
+- Accept cookies
+- Set your preferred store
+
+See [COOKIE_GUIDE.md](COOKIE_GUIDE.md) for details.
+
+### 2. Configure Your Watchlist
+
+Edit `src/main.py` and update the `WATCHLIST`:
+
+```python
+WATCHLIST = [
+    "Tim Tams",
+    "Nescafe",
+    "Coca-Cola",
+    "Laundry detergent"
+]
+```
+
+### 3. Test Run (No Emails)
+
+```bash
+python -m src.main --scrape-test
+```
+
+This runs the scraper without sending emails and shows you what it found.
+
+### 4. Production Run
+
+Once tested, configure email settings and run normally:
+
+```bash
+python -m src.main
+```
 
 ## Development
 

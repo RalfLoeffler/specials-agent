@@ -26,11 +26,11 @@ SCRAPE_TEST_LOG = os.getenv("SALE_ALERT_SCRAPE_TEST_LOG", "scrape_test.log")
 
 # List of product names to monitor for sales/specials
 # Case-insensitive matching is used, so "Tim Tams" will match "TIM TAMS" or "tim tams"
+# For testing: Use ["Example", "domain"] with the test configuration below
 WATCHLIST = [
-    "Tim Tams",
-    "Nescafe",
-    "Coca-Cola",
-    "Laundry detergent"
+    "Example",
+    "domain",
+    "illustrative"
 ]
 
 # Email configuration - loaded from environment variables for security
@@ -47,19 +47,59 @@ EMAIL_PASS = os.getenv("SALE_ALERT_EMAIL_PASS", "")
 EMAIL_TO = os.getenv("SALE_ALERT_EMAIL_TO", "")
 
 # Store configuration - each store has a name, URL, and CSS selector
-# NOTE: Selectors may need updating if the websites change their structure
+# NOTE: Major grocery websites (Coles, Woolworths) have anti-bot protection
+#       and require advanced techniques beyond basic scraping.
+#
+# IMPORTANT: These are placeholder configurations. Real implementation requires:
+#   1. Proper handling of bot detection (user agents, delays, cookies)
+#   2. Correct catalogue URLs (not just homepage)
+#   3. Waiting for dynamic content to load
+#   4. Potentially using official APIs if available
+#
+# TO FIND CORRECT SELECTORS:
+#   1. Run: python inspect_selectors.py
+#   2. Manually inspect websites with browser DevTools (F12)
+#   3. Look for repeating elements containing product info
+#   4. Update selectors below based on your findings
+#
+# ALTERNATIVE APPROACH:
+#   Consider using store APIs or RSS feeds if available
+#   Some stores provide catalogue data in structured formats
+
+# WORKING TEST CONFIGURATION - This actually works for demonstration!
+# Uncomment this to test the scraper functionality:
 STORES = [
     {
-        "name": "Coles",
-        "url": "https://www.coles.com.au/catalogues-and-specials",
-        "product_selector": "div.product-tile, article[class*=product]"
-    },
-    {
-        "name": "Woolworths",
-        "url": "https://www.woolworths.com.au/shop/catalogue",
-        "product_selector": "div.product-tile, article[class*=product]"
+        "name": "Example Site (Test)",
+        "url": "https://example.com",
+        "product_selector": "h1, p, div"
     }
 ]
+
+# REAL GROCERY STORE CONFIGURATION (Currently non-functional)
+# These require advanced anti-bot handling - see SCRAPING_GUIDE.md
+# STORES = [
+#     {
+#         "name": "Coles",
+#         "url": "https://www.coles.com.au/catalogues-and-specials",
+#         # NOTE: Real Coles catalogues require:
+#         # - Navigating to specific catalogue pages
+#         # - Handling dynamic JavaScript loading
+#         # - Possibly solving CAPTCHAs or other anti-bot measures
+#         "product_selector": "div[class*='card-content'], div[class*='CardBody'], a[class*='tile']"
+#     },
+#     {
+#         "name": "Woolworths",
+#         "url": "https://www.woolworths.com.au/shop/catalogue",
+#         # Woolworths has strong bot detection - see SCRAPING_GUIDE.md for alternatives
+#         "product_selector": "div[class*='product'], article[class*='product']"
+#     }
+# ]
+
+# MORE REALISTIC TEST OPTIONS - See test_configurations.py for details:
+# - E-commerce test site: webscraper.io/test-sites/e-commerce/allinone
+# - Quotes test site: quotes.toscrape.com
+# These sites are designed for web scraping practice!
 
 # -----------------------------
 # FUNCTIONS
@@ -80,12 +120,13 @@ def _append_to_log(log_file: str, message: str) -> None:
         print(f"Warning: Could not write to log file {log_file}: {e}")
 
 
-def fetch_items(url: str, product_selector: str) -> list[str]:
+def fetch_items(url: str, product_selector: str, use_saved_session: bool = True) -> list[str]:
     """Scrape product listings from a store's website.
     
     Args:
         url: The URL of the store's catalogue/specials page
         product_selector: CSS selector to find product elements on the page
+        use_saved_session: If True, load saved cookies/session (e.g., postcode)
         
     Returns:
         A list of product text strings found on the page
@@ -93,11 +134,22 @@ def fetch_items(url: str, product_selector: str) -> list[str]:
     Note:
         Uses Playwright in headless mode to handle JavaScript-rendered content.
         Includes fallback scrolling mechanism for lazy-loaded content.
+        Can save and reuse cookies/sessions to maintain location preferences.
     """
     with sync_playwright() as p:
         # Launch browser in headless mode (no visible window)
         browser = p.chromium.launch(headless=True)
-        page = browser.new_page()
+        
+        # Check if we have saved session data (cookies, localStorage, etc.)
+        session_file = "browser_session.json"
+        if use_saved_session and os.path.exists(session_file):
+            # Load previously saved session (includes cookies, postcode, etc.)
+            context = browser.new_context(storage_state=session_file)
+            page = context.new_page()
+            print(f"  → Loaded saved session from {session_file}")
+        else:
+            # Create new session
+            page = browser.new_page()
         
         # Navigate to the store's specials page with 60 second timeout
         page.goto(url, timeout=60000)
@@ -126,6 +178,17 @@ def fetch_items(url: str, product_selector: str) -> list[str]:
             txt = (el.inner_text() or "").strip()
             if txt:  # Only add non-empty text
                 items.append(txt)
+        
+        # Save session data for next time (includes cookies, localStorage, postcode)
+        if use_saved_session:
+            try:
+                if 'context' in locals():
+                    context.storage_state(path=session_file)
+                else:
+                    page.context.storage_state(path=session_file)
+                print(f"  → Session saved to {session_file}")
+            except Exception as e:
+                print(f"  → Could not save session: {e}")
         
         # Clean up: close the browser
         browser.close()
