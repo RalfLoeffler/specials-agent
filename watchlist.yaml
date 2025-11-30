@@ -1,1 +1,7 @@
-items: []
+items:
+  - name: "Tim Tam"
+    match_keywords: ["tim tam"]
+    only_half_price: true
+  - name: "Smith's Chips"
+    match_keywords: ["smith chips", "smith's chips"]
+    only_half_price: false
