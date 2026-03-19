@@ -155,6 +155,24 @@ items:
 
 Add as many items as you like.
 
+### 5.1 Edit watchlist via Excel (optional)
+
+Helpers (require `openpyxl`):
+
+- Export YAML -> Excel:
+
+  ```bash
+  python -m src.watchlist_excel_export --yaml watchlist.yaml --excel watchlist.xlsx
+  ```
+
+- Import Excel -> YAML:
+
+  ```bash
+  python -m src.watchlist_excel_import --excel watchlist.xlsx --yaml watchlist.yaml
+  ```
+
+Expected columns: `name`, `match_keywords` (comma-separated), `only_half_price`.
+
 ---
 
 ## 6. Use the test helpers
@@ -282,7 +300,31 @@ sudo systemctl status cron
 
 ---
 
-## 10. Troubleshooting tips
+## 10. API usage limits & monthly counter
+
+- API calls are counted per store and stored in `config/api_usage.json`.
+  The file is rotated automatically at the start of each month.
+- To enforce limits, create `config/limits.yaml` (or add `api_limits`
+  to `watchlist.yaml`). Structure:
+
+  ```yaml
+  api_limits:
+    default:
+      warn: 450   # add warnings to the emailed report when reached
+      hard: 480   # stop calling the API at this number
+    coles:
+      warn: 430
+      hard: 450
+    woolworths:
+      warn: 430
+      hard: 450
+  ```
+
+- When the warn threshold is reached, the report/email gets a warning.
+- When the hard limit is reached, the run aborts further API calls and
+  records the reason in the report/email.
+
+## 11. Troubleshooting tips
 
 - **No email arrives**  
   - Check `cron.log` (on the Pi) or the console output (on PC).

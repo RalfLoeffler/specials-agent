@@ -1,0 +1,11 @@
+# API usage limits. Copy to config/limits.yaml and adjust values.
+api_limits:
+  default:
+    warn: 450   # warn when this many calls are reached in a month
+    hard: 480   # stop making calls at this number
+  coles:
+    warn: 430
+    hard: 450
+  woolworths:
+    warn: 430
+    hard: 450
