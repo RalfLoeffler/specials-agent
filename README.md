@@ -143,15 +143,23 @@ Example:
 items:
   - name: "Tim Tam"
     match_keywords: ["tim tam"]
+    exclude_keywords: []
+    include_unknown_half_price: true
     only_half_price: true
   - name: "Smith's Chips"
     match_keywords: ["smith chips", "smith's chips"]
+    exclude_keywords: ["lunchbox"]
+    include_unknown_half_price: true
     only_half_price: false
 ```
 
 - `name` – friendly label for the item.
 - `match_keywords` – search terms used against both Coles & Woolies.
 - `only_half_price` – if `true`, only keep results that appear to be ~50% off.
+
+- `exclude_keywords` - terms that should remove products from the comparison.
+- `include_unknown_half_price` - when `only_half_price` is enabled, still show
+  products whose current price is known but previous price is not.
 
 Add as many items as you like.
 
@@ -171,11 +179,52 @@ Helpers (require `openpyxl`):
   python -m src.watchlist_excel_import --excel watchlist.xlsx --yaml watchlist.yaml
   ```
 
-Expected columns: `name`, `match_keywords` (comma-separated), `only_half_price`.
+Expected columns: `name`, `match_keywords` (comma-separated), `exclude_keywords` (comma-separated), `include_unknown_half_price`, `only_half_price`.
 
 ---
 
-## 6. Use the test helpers
+## 6. Reuse formatting, linting, and sanity-check commands
+
+With your virtual environment activated, these are the main maintenance
+commands to reuse while working on the repo:
+
+```bash
+# Lint the active source files
+python -m ruff check src
+
+# Auto-format the active source files
+python -m black src
+
+# Quick syntax check for the active scripts
+python -m compileall src/watchlist_excel_import.py src/watchlist_excel_export.py src/specials_checker.py
+```
+
+If `black` or `ruff` are not installed yet:
+
+```bash
+python -m pip install black ruff
+```
+
+Useful sanity-check examples:
+
+```bash
+# Inspect live Coles API response structure
+python src/specials_checker.py --test-coles "tim tam"
+
+# Inspect live Woolworths API response structure
+python src/specials_checker.py --test-woolies "tim tam"
+
+# Run the full checker without sending email
+python src/specials_checker.py --testing
+
+# Export and re-import the watchlist through Excel
+python -m src.watchlist_excel_export --yaml watchlist.yaml --excel watchlist.xlsx
+python -m src.watchlist_excel_import --excel watchlist.xlsx --yaml watchlist.yaml
+```
+
+---
+
+## 7. Use the test helpers
 
 With the venv activated and `RAPIDAPI_KEY` set:
 
@@ -203,7 +252,7 @@ edit the script accordingly.
 
 ---
 
-## 7. Run the full checker (no email vs email)
+## 8. Run the full checker (no email vs email)
 
 To run the full watchlist scan **without** sending an email:
 
@@ -222,7 +271,7 @@ an email should arrive at `to_email`.
 
 ---
 
-## 8. Deploying to Raspberry Pi (OpenHABian)
+## 9. Deploying to Raspberry Pi (OpenHABian)
 
 Once it works on your PC:
 
@@ -271,7 +320,7 @@ Once it works on your PC:
 
 ---
 
-## 9. Add a weekly cron job on the Pi
+## 10. Add a weekly cron job on the Pi
 
 Edit crontab for user `openhabian`:
 
@@ -300,10 +349,12 @@ sudo systemctl status cron
 
 ---
 
-## 10. API usage limits & monthly counter
+## 11. API usage limits & monthly counter
 
 - API calls are counted per store and stored in `config/api_usage.json`.
   The file is rotated automatically at the start of each month.
+- In `--testing` mode the script now prints both the API calls used in the
+  current run and the persisted monthly total.
 - To enforce limits, create `config/limits.yaml` (or add `api_limits`
   to `watchlist.yaml`). Structure:
 
@@ -323,8 +374,10 @@ sudo systemctl status cron
 - When the warn threshold is reached, the report/email gets a warning.
 - When the hard limit is reached, the run aborts further API calls and
   records the reason in the report/email.
+- Product search pagination is capped to the first 2 pages per keyword/store
+  to reduce API usage while still covering the most relevant matches.
 
-## 11. Troubleshooting tips
+## 12. Troubleshooting tips
 
 - **No email arrives**  
   - Check `cron.log` (on the Pi) or the console output (on PC).
