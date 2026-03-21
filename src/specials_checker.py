@@ -478,9 +478,7 @@ def extract_pagination_from_response(data: dict) -> Tuple[int, int, Optional[int
     )
     total_pages = _coerce_float(
         _pick_first(data, "totalPages", "total_pages", "pageCount")
-    ) or _coerce_float(
-        _pick_first(nested, "totalPages", "total_pages", "pageCount")
-    )
+    ) or _coerce_float(_pick_first(nested, "totalPages", "total_pages", "pageCount"))
     total_results = _coerce_float(
         _pick_first(data, "totalResults", "total_results", "count", "total")
     ) or _coerce_float(
@@ -694,9 +692,7 @@ def _keyword_matches_offer(keyword: str, offer: Offer) -> bool:
 
     searchable_tokens = _tokenise_match_text(searchable_text)
     searchable_token_variants = {
-        variant
-        for token in searchable_tokens
-        for variant in _token_variants(token)
+        variant for token in searchable_tokens for variant in _token_variants(token)
     }
 
     # Fall back to token coverage so "smiths" can still match a keyword like
@@ -724,8 +720,7 @@ def _search_signature_token(token: str) -> str:
 def _keyword_search_signature(keyword: str) -> Tuple[str, ...]:
     """Build a loose signature so near-equivalent search phrases collapse."""
     return tuple(
-        _search_signature_token(token)
-        for token in _tokenise_match_text(keyword)
+        _search_signature_token(token) for token in _tokenise_match_text(keyword)
     )
 
 
@@ -880,9 +875,7 @@ def find_offers_for_watch_item(
             offer
             for offer in offers
             if offer.is_half_price
-            or (
-                watch_item.include_unknown_half_price and offer.was_price is None
-            )
+            or (watch_item.include_unknown_half_price and offer.was_price is None)
         ]
 
     return offers
