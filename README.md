@@ -1,12 +1,12 @@
 # Grocery Specials Checker (Coles & Woolworths)
 
-This project can run on your **PC** for testing and then on a **Raspberry Pi**
-(e.g. OpenHABian) in production. It:
+This project can run on your PC for testing and then on a Raspberry Pi
+(for example OpenHABian) in production. It:
 
-- Checks Coles & Woolworths product data via RapidAPI
-- Matches against your **watchlist** (e.g. Tim Tams, Smith's chips)
+- Checks Coles and Woolworths product data via RapidAPI
+- Matches against your watchlist
 - Builds a simple text/Markdown report
-- Emails it to you weekly using **Gmail + app password**
+- Emails it to you weekly using Gmail and an app password
 
 ---
 
@@ -14,103 +14,102 @@ This project can run on your **PC** for testing and then on a **Raspberry Pi**
 
 Create a RapidAPI account and subscribe to these two APIs:
 
-- **Coles Product Price API**  
+- **Coles Product Price API**
   https://rapidapi.com/data-holdings-group-data-holdings-group-default/api/coles-product-price-api
-
-- **Woolworths Products API**  
+- **Woolworths Products API**
   https://rapidapi.com/data-holdings-group-data-holdings-group-default/api/woolworths-products-api
 
-From either API's "Code Snippets" panel, copy your **X-RapidAPI-Key**.
+From either API's code snippets panel, copy your `X-RapidAPI-Key`.
 
 ---
 
-## 2. Files in this bundle
+## 2. Files in this repo
 
-- `specials_checker.py`  
-  Main script with:
-  - Coles & Woolworths API calls
-  - Watchlist handling
-  - Report generation
-  - Gmail email sending
-  - Test helpers (`--test-coles`, `--test-woolies`, `--no-email`)
-
-- `watchlist.yaml`  
-  Starter watchlist (Tim Tams, Smith's chips).
-
-- `email_config.yaml.example`  
-  Template for Gmail credentials & target address.
-
-- `README.md`  
-  This file with instructions.
+- `src/specials_checker.py`
+  Main script with API calls, watchlist handling, report generation, email
+  sending, and test helpers.
+- `watchlist.yaml`
+  Watchlist data and optional `api_limits`.
+- `config/email_config.yaml.example`
+  Template for Gmail credentials and target address.
+- `config/limits.yaml.example`
+  Template for monthly API warning and hard limits.
+- `config/secrets.example.yaml`
+  Template for the RapidAPI key file.
 
 ---
 
-## 3. Testing on your PC
+## 3. Local setup
 
-You can test locally on Windows/macOS/Linux using a virtual environment.
+You can test locally on Windows, macOS, Linux, or a Raspberry Pi with a
+virtual environment.
 
-### 3.1. Unzip and enter the folder
-
-Put the `grocery_specials_v2.zip` content in a folder, e.g.:
-
-- Windows: `C:\Users\<you>\grocery_specials\`
-- macOS/Linux: `~/grocery_specials/`
-
-Then:
-
-```bash
-cd /path/to/grocery_specials
-```
-
-### 3.2. Create a virtual environment & install dependencies
+### 3.1 Create a virtual environment and install dependencies
 
 **Windows (PowerShell):**
 
 ```powershell
-cd C:\Users\<you>\grocery_specials
+cd C:\path\to\specials-agent
 
 py -3 -m venv venv
-.env\Scripts\Activate.ps1
+.\venv\Scripts\Activate.ps1
 
-pip install requests pyyaml
+pip install requests pyyaml openpyxl
 ```
 
-**macOS/Linux (bash/zsh):**
+**macOS/Linux/Raspberry Pi:**
 
 ```bash
-cd ~/grocery_specials
+cd ~/specials-agent
 
-python3 -m venv venv
-source venv/bin/activate
+python3 -m venv .venv
+source .venv/bin/activate
 
-pip install requests pyyaml
+pip install requests pyyaml openpyxl
 ```
 
-### 3.3. Set your RapidAPI key
-
-After subscribing to the two APIs and getting your key:
-
-**Windows (PowerShell in the venv):**
+Runtime dependencies are listed in `requirements.txt`:
 
 ```powershell
-$env:RAPIDAPI_KEY="your_real_key_here"
+python -m pip install -r requirements.txt
 ```
 
-**macOS/Linux:**
+Development/build dependencies are listed in `requirements_dev.txt`:
+
+```powershell
+python -m pip install -r requirements_dev.txt
+```
+
+### 3.2 Configure your RapidAPI key
+
+You can either set an environment variable or create `config/secrets.yaml`.
+
+**Environment variable:**
 
 ```bash
 export RAPIDAPI_KEY="your_real_key_here"
+```
+
+**Config file:**
+
+```bash
+cp config/secrets.example.yaml config/secrets.yaml
+nano config/secrets.yaml
+```
+
+```yaml
+rapidapi_key: "your_real_key_here"
 ```
 
 ---
 
 ## 4. Configure email (optional while testing)
 
-Copy the template and edit:
+Copy the template and edit it:
 
 ```bash
-cp email_config.yaml.example email_config.yaml
-nano email_config.yaml   # or use your preferred editor
+cp config/email_config.yaml.example email_config.yaml
+nano email_config.yaml
 ```
 
 Fill in:
@@ -121,10 +120,11 @@ gmail_app_password: "your_16_char_app_password"
 to_email: "where_to_send_report@gmail.com"
 ```
 
-Lock it down (optional but recommended):
+Optional hardening:
 
 ```bash
 chmod 600 email_config.yaml
+chmod 600 config/secrets.yaml
 ```
 
 ---
@@ -153,59 +153,92 @@ items:
     only_half_price: false
 ```
 
-- `name` – friendly label for the item.
-- `match_keywords` – search terms used against both Coles & Woolies.
-- `only_half_price` – if `true`, only keep results that appear to be ~50% off.
-
+- `name` - friendly label for the item.
+- `match_keywords` - search terms used against both stores.
 - `exclude_keywords` - terms that should remove products from the comparison.
 - `include_unknown_half_price` - when `only_half_price` is enabled, still show
   products whose current price is known but previous price is not.
+- `only_half_price` - if `true`, only keep results that appear to be about 50%
+  off.
 
-Add as many items as you like.
+You can also add API usage limits at the top level of `watchlist.yaml`, though
+`config/limits.yaml` is cleaner:
 
-### 5.1 Edit watchlist via Excel (optional)
+```yaml
+api_limits:
+  default:
+    warn: 450
+    hard: 480
+  coles:
+    warn: 430
+    hard: 450
+  woolworths:
+    warn: 430
+    hard: 450
+```
 
-Helpers (require `openpyxl`):
+### 5.1 Edit the watchlist via Excel (optional)
 
-- Export YAML -> Excel:
+These helpers require `openpyxl`.
 
-  ```bash
-  python -m src.watchlist_excel_export --yaml watchlist.yaml --excel watchlist.xlsx
-  ```
+Export YAML to Excel:
 
-- Import Excel -> YAML:
+```bash
+python -m src.watchlist_excel_export --yaml watchlist.yaml --excel watchlist.xlsx
+```
 
-  ```bash
-  python -m src.watchlist_excel_import --excel watchlist.xlsx --yaml watchlist.yaml
-  ```
+Import Excel back to YAML:
 
-Expected columns: `name`, `match_keywords` (comma-separated), `exclude_keywords` (comma-separated), `include_unknown_half_price`, `only_half_price`.
+```bash
+python -m src.watchlist_excel_import --excel watchlist.xlsx --yaml watchlist.yaml
+```
 
+Expected columns:
+
+- `name`
+- `match_keywords`
+- `exclude_keywords`
+- `include_unknown_half_price`
+- `only_half_price`
+
+### 5.2 Build standalone Excel helper executables (optional)
+
+If you want compiled Windows executables for the Excel helper tools, run:
+
+```powershell
+cd C:\repos\specials-agent
+.\scripts\build_excel_tools.ps1
+```
+
+This builds:
+
+- `dist\excel-tools\watchlist_excel_export.exe`
+- `dist\excel-tools\watchlist_excel_import.exe`
+
+Example usage:
+
+```powershell
+.\dist\excel-tools\watchlist_excel_export.exe --yaml watchlist.yaml --excel watchlist.xlsx
+.\dist\excel-tools\watchlist_excel_import.exe --excel watchlist.xlsx --yaml watchlist.yaml
+```
+
+
+Runtime dependencies are listed in `requirements.txt`:
+
+```powershell
+python -m pip install -r requirements.txt
+```
+
+Development/build dependencies are listed in `requirements_dev.txt`:
+
+```powershell
+python -m pip install -r requirements_dev.txt
+```
 ---
 
-## 6. Reuse formatting, linting, and sanity-check commands
+## 6. Useful commands
 
-With your virtual environment activated, these are the main maintenance
-commands to reuse while working on the repo:
-
-```bash
-# Lint the active source files
-python -m ruff check src
-
-# Auto-format the active source files
-python -m black src
-
-# Quick syntax check for the active scripts
-python -m compileall src/watchlist_excel_import.py src/watchlist_excel_export.py src/specials_checker.py
-```
-
-If `black` or `ruff` are not installed yet:
-
-```bash
-python -m pip install black ruff
-```
-
-Useful sanity-check examples:
+With the virtual environment activated:
 
 ```bash
 # Inspect live Coles API response structure
@@ -217,177 +250,153 @@ python src/specials_checker.py --test-woolies "tim tam"
 # Run the full checker without sending email
 python src/specials_checker.py --testing
 
+# Run the full checker without email but with normal flow
+python src/specials_checker.py --no-email
+
+# Run the full checker and send email
+python src/specials_checker.py
+
 # Export and re-import the watchlist through Excel
 python -m src.watchlist_excel_export --yaml watchlist.yaml --excel watchlist.xlsx
 python -m src.watchlist_excel_import --excel watchlist.xlsx --yaml watchlist.yaml
 ```
 
----
-
-## 7. Use the test helpers
-
-With the venv activated and `RAPIDAPI_KEY` set:
+Optional maintenance commands:
 
 ```bash
-# Test Coles API shape with a keyword
-python specials_checker.py --test-coles "tim tam"
-
-# Test Woolworths API shape
-python specials_checker.py --test-woolies "tim tam"
+python -m ruff check src
+python -m black src
+python -m compileall src/watchlist_excel_import.py src/watchlist_excel_export.py src/specials_checker.py
 ```
 
-These commands will:
-
-- Call the corresponding API.
-- Print top-level JSON keys.
-- Show a few product objects (trimmed pretty JSON).
-
-Use these outputs to confirm (or adjust) field names in:
-
-- `normalise_coles_product`
-- `normalise_woolies_product`
-
-If you see different field names (e.g. `UnitPrice` instead of `CurrentPrice`),
-edit the script accordingly.
-
----
-
-## 8. Run the full checker (no email vs email)
-
-To run the full watchlist scan **without** sending an email:
+If needed:
 
 ```bash
-python specials_checker.py --no-email
+python -m pip install black ruff
 ```
 
-To run with email enabled (requires `email_config.yaml`):
+---
+
+## 7. Raspberry Pi setup
+
+Once it works on your PC, copy the repo to the Pi. Example:
 
 ```bash
-python specials_checker.py
+scp -r ./specials-agent openhabian@your_pi_ip:/home/openhabian/
 ```
 
-You should see the report printed in the terminal, and (when email is enabled)
-an email should arrive at `to_email`.
+On the Pi:
+
+```bash
+cd /home/openhabian/specials-agent
+
+sudo apt update
+sudo apt install -y python3-venv python3-pip
+
+python3 -m venv .venv
+source .venv/bin/activate
+
+pip install requests pyyaml openpyxl
+```
+
+Create the runtime config files:
+
+```bash
+cp config/email_config.yaml.example email_config.yaml
+cp config/limits.yaml.example config/limits.yaml
+cp config/secrets.example.yaml config/secrets.yaml
+```
+
+Then edit:
+
+```bash
+nano email_config.yaml
+nano config/secrets.yaml
+nano watchlist.yaml
+```
+
+Test on the Pi:
+
+```bash
+cd /home/openhabian/specials-agent
+source .venv/bin/activate
+
+python src/specials_checker.py --testing
+python src/specials_checker.py --no-email
+```
+
+When ready:
+
+```bash
+python src/specials_checker.py
+```
 
 ---
 
-## 9. Deploying to Raspberry Pi (OpenHABian)
+## 8. Weekly cron job on the Pi
 
-Once it works on your PC:
-
-1. Copy the entire folder to your Pi, e.g.:
-
-   ```bash
-   scp -r ./grocery_specials openhabian@your_pi_ip:/home/openhabian/
-   ```
-
-2. On the Pi, create a virtualenv and install deps:
-
-   ```bash
-   cd /home/openhabian/grocery_specials
-
-   sudo apt update
-   sudo apt install -y python3-venv python3-pip
-
-   python3 -m venv venv
-   source venv/bin/activate
-
-   pip install requests pyyaml
-   ```
-
-3. Set your RapidAPI key on the Pi:
-
-   ```bash
-   echo 'export RAPIDAPI_KEY="your_real_key_here"' >> ~/.bashrc
-   source ~/.bashrc
-   ```
-
-4. Place your `email_config.yaml` and `watchlist.yaml` in the same folder.
-
-5. Test on the Pi:
-
-   ```bash
-   cd /home/openhabian/grocery_specials
-   source venv/bin/activate
-   python specials_checker.py --no-email
-   ```
-
-   Then, when happy:
-
-   ```bash
-   python specials_checker.py
-   ```
-
----
-
-## 10. Add a weekly cron job on the Pi
-
-Edit crontab for user `openhabian`:
+Edit the crontab for user `openhabian`:
 
 ```bash
 crontab -e
 ```
 
-Add a line to run every Wednesday at 09:05:
+Example: every Wednesday at 09:05:
 
 ```cron
-5 9 * * 3 /home/openhabian/grocery_specials/venv/bin/python /home/openhabian/grocery_specials/specials_checker.py >> /home/openhabian/grocery_specials/cron.log 2>&1
+5 9 * * 3 cd /home/openhabian/specials-agent && /home/openhabian/specials-agent/.venv/bin/python src/specials_checker.py >> /home/openhabian/specials-agent/cron.log 2>&1
 ```
 
-Check paths:
+The `cd` is important because the script reads relative paths such as
+`watchlist.yaml`, `config/secrets.yaml`, and `email_config.yaml`.
+
+Sanity checks:
 
 ```bash
-ls /home/openhabian/grocery_specials
-ls /home/openhabian/grocery_specials/venv/bin/python
-```
-
-Ensure cron is running:
-
-```bash
+ls /home/openhabian/specials-agent
+ls /home/openhabian/specials-agent/.venv/bin/python
 sudo systemctl status cron
 ```
 
 ---
 
-## 11. API usage limits & monthly counter
+## 9. API usage limits and monthly counter
 
 - API calls are counted per store and stored in `config/api_usage.json`.
-  The file is rotated automatically at the start of each month.
-- In `--testing` mode the script now prints both the API calls used in the
-  current run and the persisted monthly total.
-- To enforce limits, create `config/limits.yaml` (or add `api_limits`
-  to `watchlist.yaml`). Structure:
+- The counter rotates automatically at the start of each month.
+- In `--testing` mode the script prints both the API calls used in the current
+  run and the persisted monthly total.
+- `config/limits.yaml` can define warning and hard limits per store.
+- Product search pagination is capped to the first 2 pages per keyword/store to
+  reduce API usage while still covering the most relevant matches.
 
-  ```yaml
-  api_limits:
-    default:
-      warn: 450   # add warnings to the emailed report when reached
-      hard: 480   # stop calling the API at this number
-    coles:
-      warn: 430
-      hard: 450
-    woolworths:
-      warn: 430
-      hard: 450
-  ```
+Example `config/limits.yaml`:
 
-- When the warn threshold is reached, the report/email gets a warning.
-- When the hard limit is reached, the run aborts further API calls and
-  records the reason in the report/email.
-- Product search pagination is capped to the first 2 pages per keyword/store
-  to reduce API usage while still covering the most relevant matches.
+```yaml
+api_limits:
+  default:
+    warn: 450
+    hard: 480
+  coles:
+    warn: 430
+    hard: 450
+  woolworths:
+    warn: 430
+    hard: 450
+```
 
-## 12. Troubleshooting tips
+---
 
-- **No email arrives**  
-  - Check `cron.log` (on the Pi) or the console output (on PC).
-  - Verify Gmail app password & account.
-  - Check Gmail's security page for blocked sign-in attempts.
+## 10. Troubleshooting
 
-- **RapidAPI errors (401/403/429/etc.)**  
-  - Confirm `RAPIDAPI_KEY` exported in the environment.
-  - Make sure your subscription plan allows the volume of requests.
-  - Use `--test-coles` and `--test-woolies` to see exact error JSON.
+- No email arrives
+  Check `cron.log` on the Pi or console output during manual runs. Verify the
+  Gmail app password and account settings.
+- RapidAPI errors such as `401`, `403`, or `429`
+  Confirm `RAPIDAPI_KEY` or `config/secrets.yaml`, verify your RapidAPI
+  subscription, and use `--test-coles` / `--test-woolies` to inspect the
+  response.
 
-Once it’s wired up, your PI becomes a small weekly grocery intel node,
-politely emailing you whenever your favourite snacks dance on special.
+Once it's wired up, your Pi becomes a small weekly grocery intel node that
+emails you when your favourite snacks go on special.
+
