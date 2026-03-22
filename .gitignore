@@ -158,3 +158,4 @@ playwright/.cache/
 Thumbs.db
 
 config/secrets.yaml
+/config/email_config.yaml

@@ -136,6 +136,8 @@ gmail_app_password: "your_16_char_app_password"
 smtp_host: "smtp.gmail.com"
 smtp_port: 587
 smtp_use_tls: true
+email_subject: "Weekly grocery specials report"
+email_test_subject: "Email test - grocery specials checker"
 to_email: "where_to_send_report@gmail.com"
 ```
 
@@ -145,6 +147,8 @@ Notes:
 - `auth_mode: "password"` uses `gmail_password`
 - `smtp_host`, `smtp_port`, and `smtp_use_tls` are optional and default to the
   Gmail SMTP settings shown above
+- `email_subject` controls the normal report subject line
+- `email_test_subject` controls the `--test-email` subject line
 - Gmail often rejects regular password SMTP logins unless the account/provider
   explicitly allows them, so `app_password` is usually the safer option
 

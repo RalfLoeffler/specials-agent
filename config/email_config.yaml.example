@@ -6,4 +6,6 @@ gmail_app_password: "your_16_char_app_password"
 smtp_host: "smtp.gmail.com"
 smtp_port: 587
 smtp_use_tls: true
+email_subject: "Weekly grocery specials report"
+email_test_subject: "Email test - grocery specials checker"
 to_email: "where_to_send_report@gmail.com"

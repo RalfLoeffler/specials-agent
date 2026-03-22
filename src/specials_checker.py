@@ -96,6 +96,21 @@ def resolve_email_config_path() -> Optional[str]:
     return None
 
 
+def load_email_config() -> Tuple[Optional[str], Dict[str, Any]]:
+    """Load the email config file, returning its path and parsed mapping."""
+    email_config_path = resolve_email_config_path()
+    if email_config_path is None:
+        return None, {}
+
+    with open(email_config_path, "r", encoding="utf-8") as f:
+        cfg = yaml.safe_load(f) or {}
+
+    if not isinstance(cfg, dict):
+        raise ValueError(f"{email_config_path} must contain a top-level mapping")
+
+    return email_config_path, cfg
+
+
 def _current_month_key() -> str:
     """Month bucket key (UTC) used to reset counters on rollover."""
     return datetime.now(UTC).strftime("%Y-%m")
@@ -1006,16 +1021,13 @@ def build_report(
 
 def send_email_report(report: str, subject: str = "Weekly grocery specials report"):
     """Send the report via SMTP using the configured auth settings."""
-    email_config_path = resolve_email_config_path()
+    email_config_path, cfg = load_email_config()
     if email_config_path is None:
         print(
             "[WARN] No email config found. Expected config/email_config.yaml "
             "or email_config.yaml; skipping email send."
         )
         return
-
-    with open(email_config_path, "r", encoding="utf-8") as f:
-        cfg = yaml.safe_load(f)
 
     gmail_user = cfg["gmail_user"]
     auth_mode = str(cfg.get("auth_mode", "app_password")).strip().lower()
@@ -1038,9 +1050,10 @@ def send_email_report(report: str, subject: str = "Weekly grocery specials repor
     smtp_host = str(cfg.get("smtp_host", "smtp.gmail.com")).strip()
     smtp_port = int(cfg.get("smtp_port", 587))
     smtp_use_tls = bool(cfg.get("smtp_use_tls", True))
+    email_subject = str(cfg.get("email_subject", subject)).strip() or subject
 
     msg = EmailMessage()
-    msg["Subject"] = subject
+    msg["Subject"] = email_subject
     msg["From"] = gmail_user
     msg["To"] = to_email
     msg.set_content(report)
@@ -1225,9 +1238,15 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     if args.test_email:
+        _, email_cfg = load_email_config()
         send_email_report(
             build_email_test_report(),
-            subject="Email test - grocery specials checker",
+            subject=str(
+                email_cfg.get(
+                    "email_test_subject",
+                    "Email test - grocery specials checker",
+                )
+            ),
         )
     elif args.test_coles:
         run_test_coles(args.test_coles)
