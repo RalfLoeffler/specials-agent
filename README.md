@@ -272,11 +272,17 @@ If the optional columns are missing during import, these defaults are used:
 
 ### 5.2 Build standalone Excel helper executables (optional)
 
-If you want compiled Windows executables for the Excel helper tools, run:
+If you want compiled Windows executables for the Excel helper tools, build them from the project's dev environment. The build script automatically prefers `.venv\Scripts\python.exe` when that environment exists.
 
 ```powershell
 cd C:\repos\specials-agent
-.\scripts\build_excel_tools.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\build_excel_tools.ps1
+```
+
+If you want to force the interpreter explicitly:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\build_excel_tools.ps1 -Python .\.venv\Scripts\python.exe
 ```
 
 This builds:
