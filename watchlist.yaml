@@ -2,10 +2,12 @@ items:
   - name: "Tim Tam"
     match_keywords: ["tim tam"]
     exclude_keywords: []
+    stores: ["Coles", "Woolworths"]
     include_unknown_half_price: true
     only_half_price: true
   - name: "Smith's Chips"
     match_keywords: ["smith chips", "smith's chips"]
     exclude_keywords: ["lunchbox"]
+    stores: ["Coles", "Woolworths"]
     include_unknown_half_price: true
     only_half_price: false

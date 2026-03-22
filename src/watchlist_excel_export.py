@@ -8,6 +8,7 @@ Columns in the generated sheet:
 - name
 - match_keywords (comma-separated)
 - exclude_keywords (comma-separated)
+- stores (comma-separated; Coles/Woolworths)
 - include_unknown_half_price (TRUE/FALSE)
 - only_half_price (TRUE/FALSE)
 
@@ -69,6 +70,7 @@ def export_watchlist_to_excel(
         "name",
         "match_keywords",
         "exclude_keywords",
+        "stores",
         "include_unknown_half_price",
         "only_half_price",
     ]
@@ -78,6 +80,7 @@ def export_watchlist_to_excel(
         name = item.get("name", "")
         keywords_str = _join_keywords(item.get("match_keywords", []))
         exclude_keywords_str = _join_keywords(item.get("exclude_keywords", []))
+        stores_str = _join_keywords(item.get("stores", []))
         include_unknown_half_price = bool(item.get("include_unknown_half_price", True))
         only_half = bool(item.get("only_half_price", False))
         ws.append(
@@ -85,6 +88,7 @@ def export_watchlist_to_excel(
                 name,
                 keywords_str,
                 exclude_keywords_str,
+                stores_str,
                 include_unknown_half_price,
                 only_half,
             ]

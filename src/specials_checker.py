@@ -290,6 +290,7 @@ class WatchItem:
     name: str
     match_keywords: List[str]
     exclude_keywords: List[str]
+    stores: List[str]
     include_unknown_half_price: bool = True
     only_half_price: bool = False
 
@@ -326,6 +327,7 @@ def load_watchlist(path: str = "watchlist.yaml") -> List[WatchItem]:
                 name=raw["name"],
                 match_keywords=list(raw["match_keywords"]),
                 exclude_keywords=list(raw.get("exclude_keywords", [])),
+                stores=_normalise_watch_stores(raw.get("stores")),
                 include_unknown_half_price=bool(
                     raw.get("include_unknown_half_price", True)
                 ),
@@ -720,6 +722,47 @@ def _normalise_keyword_for_search(keyword: str) -> str:
     return _normalise_match_text(keyword)
 
 
+def _normalise_store_name(value: object) -> Optional[str]:
+    """Map common store aliases to the internal display names."""
+    if value is None:
+        return None
+
+    text = str(value).strip().lower()
+    alias_map = {
+        "coles": "Coles",
+        "woolworths": "Woolworths",
+        "woolies": "Woolworths",
+    }
+    return alias_map.get(text)
+
+
+def _normalise_watch_stores(raw_stores: object) -> List[str]:
+    """Return the allowed stores for a watch item, defaulting to both."""
+    if raw_stores in (None, "", []):
+        return ["Coles", "Woolworths"]
+
+    if isinstance(raw_stores, str):
+        candidate_values = [part.strip() for part in raw_stores.split(",")]
+    elif isinstance(raw_stores, list):
+        candidate_values = [str(value).strip() for value in raw_stores]
+    else:
+        raise ValueError(
+            "watchlist.yaml stores must be a string or list of store names"
+        )
+
+    normalised: List[str] = []
+    for value in candidate_values:
+        if not value:
+            continue
+        if value.strip().lower() == "both":
+            return ["Coles", "Woolworths"]
+        store_name = _normalise_store_name(value)
+        if store_name and store_name not in normalised:
+            normalised.append(store_name)
+
+    return normalised or ["Coles", "Woolworths"]
+
+
 def _search_signature_token(token: str) -> str:
     """Collapse simple spelling variants to one search-signature token."""
     if len(token) > 3 and token.endswith("s") and not token.endswith("ss"):
@@ -785,6 +828,7 @@ def collect_offers_by_keyword(watchlist: List[WatchItem]) -> Dict[str, List[Offe
     """Search each unique keyword once per store and reuse the results."""
     offers_by_keyword: Dict[str, List[Offer]] = {}
     seen_keywords: Dict[str, str] = {}
+    keyword_stores: Dict[str, set[str]] = {}
 
     for watch_item in watchlist:
         for keyword in _derive_search_keywords(watch_item.match_keywords):
@@ -792,15 +836,21 @@ def collect_offers_by_keyword(watchlist: List[WatchItem]) -> Dict[str, List[Offe
             if not normalised_keyword:
                 continue
             seen_keywords.setdefault(normalised_keyword, keyword)
+            keyword_stores.setdefault(normalised_keyword, set()).update(
+                watch_item.stores
+            )
 
-    jobs = [
-        ("Coles", search_coles, normalise_coles_product),
-        ("Woolworths", search_woolies, normalise_woolies_product),
-    ]
+    jobs = {
+        "Coles": (search_coles, normalise_coles_product),
+        "Woolworths": (search_woolies, normalise_woolies_product),
+    }
 
     for normalised_keyword, keyword in seen_keywords.items():
         keyword_offers: List[Offer] = []
-        for store, search_fn, normalise_fn in jobs:
+        for store in ("Coles", "Woolworths"):
+            if store not in keyword_stores.get(normalised_keyword, set()):
+                continue
+            search_fn, normalise_fn = jobs[store]
             try:
                 keyword_offers.extend(
                     _collect_keyword_offers(
@@ -837,6 +887,8 @@ def find_offers_for_watch_item(
     for keyword in watch_item.match_keywords:
         normalised_keyword = _normalise_keyword_for_search(keyword)
         for offer in offers_by_keyword.get(normalised_keyword, []):
+            if offer.store not in watch_item.stores:
+                continue
             offer_key = (
                 offer.store,
                 (offer.barcode or "").lower(),

@@ -7,9 +7,10 @@ Usage:
 Expected columns (case-insensitive):
 - name
 - match_keywords (comma-separated)
-- exclude_keywords (comma-separated)
-- include_unknown_half_price (TRUE/FALSE/Yes/No/1/0)
-- only_half_price (TRUE/FALSE/Yes/No/1/0)
+- exclude_keywords (optional; comma-separated)
+- stores (optional; comma-separated; blank means both stores)
+- include_unknown_half_price (optional; TRUE/FALSE/Yes/No/1/0)
+- only_half_price (optional; TRUE/FALSE/Yes/No/1/0)
 
 Requires: openpyxl, pyyaml
 """
@@ -36,6 +37,16 @@ def _bool_from_cell(value: object) -> bool:
         return bool(value)
     text = str(value).strip().lower()
     return text in {"1", "true", "yes", "y"}
+
+
+def _cell_value(
+    row: tuple[object, ...],
+    header_map: Dict[str, int],
+    key: str,
+) -> object:
+    """Return a row value for an optional column, or None when absent."""
+    idx = header_map.get(key)
+    return row[idx] if idx is not None and idx < len(row) else None
 
 
 def _split_keywords(cell_value: object) -> List[str]:
@@ -90,9 +101,6 @@ def import_watchlist_from_excel(
     required = {
         "name",
         "match_keywords",
-        "exclude_keywords",
-        "include_unknown_half_price",
-        "only_half_price",
     }
     missing = required - set(header_map.keys())
     if missing:
@@ -108,19 +116,31 @@ def import_watchlist_from_excel(
             continue
 
         keywords_cell = row[header_map["match_keywords"]]
-        exclude_keywords_cell = row[header_map["exclude_keywords"]]
-        include_unknown_half_price_cell = row[header_map["include_unknown_half_price"]]
-        only_half_cell = row[header_map["only_half_price"]]
+        exclude_keywords_cell = _cell_value(row, header_map, "exclude_keywords")
+        stores_cell = _cell_value(row, header_map, "stores")
+        include_unknown_half_price_cell = _cell_value(
+            row,
+            header_map,
+            "include_unknown_half_price",
+        )
+        only_half_cell = _cell_value(row, header_map, "only_half_price")
 
         items.append(
             {
                 "name": str(name).strip(),
                 "match_keywords": _split_keywords(keywords_cell),
                 "exclude_keywords": _split_keywords(exclude_keywords_cell),
-                "include_unknown_half_price": _bool_from_cell(
-                    include_unknown_half_price_cell
+                "stores": _split_keywords(stores_cell),
+                "include_unknown_half_price": (
+                    True
+                    if include_unknown_half_price_cell is None
+                    else _bool_from_cell(include_unknown_half_price_cell)
                 ),
-                "only_half_price": _bool_from_cell(only_half_cell),
+                "only_half_price": (
+                    False
+                    if only_half_cell is None
+                    else _bool_from_cell(only_half_cell)
+                ),
             }
         )
 

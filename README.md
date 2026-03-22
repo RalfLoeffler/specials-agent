@@ -172,11 +172,13 @@ items:
   - name: "Tim Tam"
     match_keywords: ["tim tam"]
     exclude_keywords: []
+    stores: ["Coles", "Woolworths"]
     include_unknown_half_price: true
     only_half_price: true
   - name: "Smith's Chips"
     match_keywords: ["smith chips", "smith's chips"]
     exclude_keywords: ["lunchbox"]
+    stores: ["Coles", "Woolworths"]
     include_unknown_half_price: true
     only_half_price: false
 ```
@@ -184,6 +186,8 @@ items:
 - `name` - friendly label for the item.
 - `match_keywords` - search terms used against both stores.
 - `exclude_keywords` - terms that should remove products from the comparison.
+- `stores` - optional store filter. Use `["Coles"]`, `["Woolworths"]`, or both.
+  If omitted or blank, the checker searches both stores.
 - `include_unknown_half_price` - when `only_half_price` is enabled, still show
   products whose current price is known but previous price is not.
 - `only_half_price` - if `true`, only keep results that appear to be about 50%
@@ -225,9 +229,17 @@ Expected columns:
 
 - `name`
 - `match_keywords`
-- `exclude_keywords`
-- `include_unknown_half_price`
-- `only_half_price`
+- `exclude_keywords` (optional)
+- `stores` (optional)
+- `include_unknown_half_price` (optional)
+- `only_half_price` (optional)
+
+If the optional columns are missing during import, these defaults are used:
+
+- `exclude_keywords: []`
+- `stores: ["Coles", "Woolworths"]`
+- `include_unknown_half_price: true`
+- `only_half_price: false`
 
 ### 5.2 Build standalone Excel helper executables (optional)
 
