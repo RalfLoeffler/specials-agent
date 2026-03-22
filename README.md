@@ -6,7 +6,7 @@ This project can run on your PC for testing and then on a Raspberry Pi
 - Checks Coles and Woolworths product data via RapidAPI
 - Matches against your watchlist
 - Builds a simple text/Markdown report
-- Emails it to you weekly using Gmail and an app password
+- Emails it to you weekly using Gmail or another SMTP server
 
 ---
 
@@ -31,7 +31,7 @@ From either API's code snippets panel, copy your `X-RapidAPI-Key`.
 - `watchlist.yaml`
   Watchlist data and optional `api_limits`.
 - `config/email_config.yaml.example`
-  Template for Gmail credentials and target address.
+  Template for SMTP credentials and target address.
 - `config/limits.yaml.example`
   Template for monthly API warning and hard limits.
 - `config/secrets.example.yaml`
@@ -112,18 +112,46 @@ cp config/email_config.yaml.example email_config.yaml
 nano email_config.yaml
 ```
 
+Preferred location:
+
+```bash
+cp config/email_config.yaml.example config/email_config.yaml
+nano config/email_config.yaml
+```
+
+Legacy fallback:
+
+```bash
+cp config/email_config.yaml.example email_config.yaml
+nano email_config.yaml
+```
+
 Fill in:
 
 ```yaml
 gmail_user: "youraddress@gmail.com"
+auth_mode: "app_password"   # or "password"
 gmail_app_password: "your_16_char_app_password"
+# gmail_password: "your_regular_password_here"
+smtp_host: "smtp.gmail.com"
+smtp_port: 587
+smtp_use_tls: true
 to_email: "where_to_send_report@gmail.com"
 ```
+
+Notes:
+
+- `auth_mode: "app_password"` uses `gmail_app_password`
+- `auth_mode: "password"` uses `gmail_password`
+- `smtp_host`, `smtp_port`, and `smtp_use_tls` are optional and default to the
+  Gmail SMTP settings shown above
+- Gmail often rejects regular password SMTP logins unless the account/provider
+  explicitly allows them, so `app_password` is usually the safer option
 
 Optional hardening:
 
 ```bash
-chmod 600 email_config.yaml
+chmod 600 config/email_config.yaml
 chmod 600 config/secrets.yaml
 ```
 
@@ -221,19 +249,6 @@ Example usage:
 .\dist\excel-tools\watchlist_excel_export.exe --yaml watchlist.yaml --excel watchlist.xlsx
 .\dist\excel-tools\watchlist_excel_import.exe --excel watchlist.xlsx --yaml watchlist.yaml
 ```
-
-
-Runtime dependencies are listed in `requirements.txt`:
-
-```powershell
-python -m pip install -r requirements.txt
-```
-
-Development/build dependencies are listed in `requirements_dev.txt`:
-
-```powershell
-python -m pip install -r requirements_dev.txt
-```
 ---
 
 ## 6. Useful commands
@@ -249,6 +264,9 @@ python src/specials_checker.py --test-woolies "tim tam"
 
 # Run the full checker without sending email
 python src/specials_checker.py --testing
+
+# Send a sample email without calling the product APIs
+python src/specials_checker.py --test-email
 
 # Run the full checker without email but with normal flow
 python src/specials_checker.py --no-email
@@ -399,6 +417,7 @@ api_limits:
 
 Once it's wired up, your Pi becomes a small weekly grocery intel node that
 emails you when your favourite snacks go on special.
+
 
 
 

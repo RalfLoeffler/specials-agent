@@ -68,6 +68,10 @@ BASE_HEADERS = {
 SEARCH_RESPONSE_CACHE: Dict[Tuple[str, str, int, int], dict] = {}
 
 API_USAGE_PATH = os.path.join("config", "api_usage.json")
+EMAIL_CONFIG_PATHS = [
+    os.path.join("config", "email_config.yaml"),
+    "email_config.yaml",
+]
 API_CALL_COUNT: Dict[str, int] = {
     "Coles": 0,
     "Woolworths": 0,
@@ -82,6 +86,14 @@ LIMIT_WARNINGS: List[str] = []
 
 class APILimitExceeded(Exception):
     """Raised when a store's hard API limit is reached."""
+
+
+def resolve_email_config_path() -> Optional[str]:
+    """Return the preferred existing email config path, if any."""
+    for path in EMAIL_CONFIG_PATHS:
+        if os.path.exists(path):
+            return path
+    return None
 
 
 def _current_month_key() -> str:
@@ -940,17 +952,39 @@ def build_report(
 
 
 def send_email_report(report: str, subject: str = "Weekly grocery specials report"):
-    """Send the report via Gmail using an app password."""
-    if not os.path.exists("email_config.yaml"):
-        print("[WARN] email_config.yaml not found, skipping email send.")
+    """Send the report via SMTP using the configured auth settings."""
+    email_config_path = resolve_email_config_path()
+    if email_config_path is None:
+        print(
+            "[WARN] No email config found. Expected config/email_config.yaml "
+            "or email_config.yaml; skipping email send."
+        )
         return
 
-    with open("email_config.yaml", "r", encoding="utf-8") as f:
+    with open(email_config_path, "r", encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
 
     gmail_user = cfg["gmail_user"]
-    gmail_app_password = cfg["gmail_app_password"]
+    auth_mode = str(cfg.get("auth_mode", "app_password")).strip().lower()
+    if auth_mode not in {"app_password", "password"}:
+        raise ValueError(
+            f"{email_config_path} auth_mode must be 'app_password' or 'password'"
+        )
+
+    password_key = (
+        "gmail_app_password" if auth_mode == "app_password" else "gmail_password"
+    )
+    gmail_password = cfg.get(password_key)
+    if not gmail_password:
+        raise ValueError(
+            f"{email_config_path} must define {password_key} when auth_mode is "
+            f"'{auth_mode}'"
+        )
+
     to_email = cfg.get("to_email", gmail_user)
+    smtp_host = str(cfg.get("smtp_host", "smtp.gmail.com")).strip()
+    smtp_port = int(cfg.get("smtp_port", 587))
+    smtp_use_tls = bool(cfg.get("smtp_use_tls", True))
 
     msg = EmailMessage()
     msg["Subject"] = subject
@@ -958,12 +992,35 @@ def send_email_report(report: str, subject: str = "Weekly grocery specials repor
     msg["To"] = to_email
     msg.set_content(report)
 
-    context = ssl.create_default_context()
-    with smtplib.SMTP("smtp.gmail.com", 587) as server:
-        server.starttls(context=context)
-        server.login(gmail_user, gmail_app_password)
+    context = ssl.create_default_context() if smtp_use_tls else None
+    with smtplib.SMTP(smtp_host, smtp_port) as server:
+        if smtp_use_tls:
+            server.starttls(context=context)
+        server.login(gmail_user, gmail_password)
         server.send_message(msg)
     print(f"[INFO] Report emailed to {to_email}")
+
+
+def build_email_test_report() -> str:
+    """Return a small sample report for email configuration testing."""
+    return "\n".join(
+        [
+            "## Email Test",
+            "This is a sample specials report used to verify email delivery.",
+            "",
+            "## Sample Item",
+            (
+                "- Coles: Example Product - Example Brand - $4.50 - "
+                "https://example.com/coles"
+            ),
+            (
+                "- Woolworths: Example Product - Example Brand - $4.80 - "
+                "barcode 1234567890 - https://example.com/woolworths"
+            ),
+            "",
+            "If you received this email, the email configuration is working.",
+        ]
+    )
 
 
 # =========================
@@ -1106,10 +1163,20 @@ if __name__ == "__main__":
         action="store_true",
         help="Run the checker in testing mode (prints results, no email)",
     )
+    parser.add_argument(
+        "--test-email",
+        action="store_true",
+        help="Send a sample email report without calling the product APIs.",
+    )
 
     args = parser.parse_args()
 
-    if args.test_coles:
+    if args.test_email:
+        send_email_report(
+            build_email_test_report(),
+            subject="Email test - grocery specials checker",
+        )
+    elif args.test_coles:
         run_test_coles(args.test_coles)
     elif args.test_woolies:
         run_test_woolies(args.test_woolies)

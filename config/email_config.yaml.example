@@ -1,4 +1,9 @@
 # Copy this file to email_config.yaml and fill in real values.
 gmail_user: "youraddress@gmail.com"
+auth_mode: "app_password"  # or "password"
 gmail_app_password: "your_16_char_app_password"
+# gmail_password: "your_regular_password_here"
+smtp_host: "smtp.gmail.com"
+smtp_port: 587
+smtp_use_tls: true
 to_email: "where_to_send_report@gmail.com"
