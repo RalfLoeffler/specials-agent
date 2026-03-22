@@ -412,9 +412,12 @@ The `cd` is important because the script reads relative paths such as
 Sanity checks:
 
 ```bash
+crontab -l
+sudo crontab -u openhabian -l
 ls /home/openhabian/specials-agent
 ls /home/openhabian/specials-agent/.venv/bin/python
 sudo systemctl status cron
+tail -n 50 /home/openhabian/specials-agent/cron.log
 ```
 
 ---
