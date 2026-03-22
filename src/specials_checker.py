@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import html
 import json
 import os
 import re
@@ -463,6 +464,22 @@ def _coerce_str(value: object) -> Optional[str]:
     return text or None
 
 
+def _coerce_bool(value: object, default: bool = False) -> bool:
+    """Parse common config-style boolean values."""
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    text = str(value).strip().lower()
+    if text in {"1", "true", "yes", "y", "on"}:
+        return True
+    if text in {"0", "false", "no", "n", "off"}:
+        return False
+    return default
+
+
 def extract_products_from_response(data: dict) -> List[dict]:
     """Find the product list in a RapidAPI-style response."""
     if isinstance(data, list):
@@ -561,7 +578,18 @@ def normalise_coles_product(watch_name: str, raw: dict) -> Offer:
             "PreviousPrice",
         )
     )
-    size = _coerce_str(_pick_first(raw, "size", "Size", "packageSize", "PackageSize"))
+    size = _coerce_str(
+        _pick_first(
+            raw,
+            "product_size",
+            "productSize",
+            "ProductSize",
+            "size",
+            "Size",
+            "packageSize",
+            "PackageSize",
+        )
+    )
     url = _coerce_str(_pick_first(raw, "url", "Url", "productUrl", "ProductUrl")) or ""
     is_half_price = bool(was_price and price <= was_price / 2 + 0.01)
 
@@ -623,7 +651,18 @@ def normalise_woolies_product(watch_name: str, raw: dict) -> Offer:
             "PreviousPrice",
         )
     )
-    size = _coerce_str(_pick_first(raw, "size", "Size", "packageSize", "PackageSize"))
+    size = _coerce_str(
+        _pick_first(
+            raw,
+            "product_size",
+            "productSize",
+            "ProductSize",
+            "size",
+            "Size",
+            "packageSize",
+            "PackageSize",
+        )
+    )
     url = _coerce_str(_pick_first(raw, "url", "Url", "productUrl", "ProductUrl")) or ""
     is_half_price = bool(was_price and price <= was_price / 2 + 0.01)
 
@@ -964,6 +1003,7 @@ def find_offers_for_watch_item(
 def build_report(
     all_offers: Dict[str, List[Offer]],
     limit_warnings: Optional[List[str]] = None,
+    verbose: bool = False,
 ) -> str:
     """Render a text report plus optional API usage warnings."""
     lines: List[str] = []
@@ -995,7 +1035,9 @@ def build_report(
             half_str = " [HALF PRICE?]" if offer.is_half_price else ""
             brand_str = f" - {offer.brand}" if offer.brand else ""
             size_str = f" - {offer.size}" if offer.size else ""
-            barcode_str = f" - barcode {offer.barcode}" if offer.barcode else ""
+            barcode_str = (
+                f" - barcode {offer.barcode}" if verbose and offer.barcode else ""
+            )
             url_str = f" - {offer.url}" if offer.url else ""
             lines.append(
                 f"- {offer.store}: {offer.product_title}{brand_str} - "
@@ -1014,12 +1056,115 @@ def build_report(
     return "\n".join(lines)
 
 
+def build_html_report(
+    all_offers: Dict[str, List[Offer]],
+    limit_warnings: Optional[List[str]] = None,
+    verbose: bool = False,
+) -> str:
+    """Render the report as HTML tables for email clients."""
+    parts: List[str] = [
+        "<html><body style=\"font-family: Arial, sans-serif; color: #222;\">"
+    ]
+
+    if limit_warnings:
+        parts.append("<h2>API usage warnings</h2><ul>")
+        for msg in limit_warnings:
+            parts.append(f"<li>{html.escape(msg)}</li>")
+        parts.append("</ul>")
+
+    for watch_name, offers in all_offers.items():
+        parts.append(f"<h2>{html.escape(watch_name)}</h2>")
+        if not offers:
+            parts.append("<p>No matching products or specials found.</p>")
+            continue
+
+        offers_sorted = sorted(offers, key=lambda offer: (offer.store, offer.price))
+        cheapest_by_store: Dict[str, Offer] = {}
+        for offer in offers_sorted:
+            if (
+                offer.store not in cheapest_by_store
+                or offer.price < cheapest_by_store[offer.store].price
+            ):
+                cheapest_by_store[offer.store] = offer
+
+        headers = ["Store", "Product", "Brand", "Price", "Size", "Link"]
+        if verbose:
+            headers.extend(["Was Price", "Barcode"])
+
+        parts.append(
+            "<table style=\"border-collapse: collapse; width: 100%; "
+            "margin-bottom: 16px;\">"
+        )
+        parts.append("<thead><tr>")
+        for header in headers:
+            parts.append(
+                "<th style=\"border: 1px solid #ccc; background: #f5f5f5; "
+                "padding: 8px; text-align: left;\">"
+                f"{html.escape(header)}</th>"
+            )
+        parts.append("</tr></thead><tbody>")
+
+        for offer in offers_sorted:
+            price_text = f"${offer.price:.2f}"
+            if offer.is_half_price:
+                price_text += " (half price)"
+
+            link_html = (
+                f"<a href=\"{html.escape(offer.url, quote=True)}\">Open</a>"
+                if offer.url
+                else ""
+            )
+
+            cells = [
+                html.escape(offer.store),
+                html.escape(offer.product_title),
+                html.escape(offer.brand or ""),
+                html.escape(price_text),
+                html.escape(offer.size or ""),
+                link_html,
+            ]
+            if verbose:
+                cells.extend(
+                    [
+                        html.escape(
+                            f"${offer.was_price:.2f}" if offer.was_price else ""
+                        ),
+                        html.escape(offer.barcode or ""),
+                    ]
+                )
+
+            parts.append("<tr>")
+            for cell in cells:
+                parts.append(
+                    "<td style=\"border: 1px solid #ccc; padding: 8px; "
+                    "vertical-align: top;\">"
+                    f"{cell}</td>"
+                )
+            parts.append("</tr>")
+
+        parts.append("</tbody></table>")
+
+        if len(cheapest_by_store) >= 2:
+            cheapest = min(cheapest_by_store.values(), key=lambda offer: offer.price)
+            parts.append(
+                "<p><strong>Cheapest overall:</strong> "
+                f"{html.escape(cheapest.store)} at ${cheapest.price:.2f}</p>"
+            )
+
+    parts.append("</body></html>")
+    return "".join(parts)
+
+
 # =========================
 # EMAIL SENDER (GMAIL)
 # =========================
 
 
-def send_email_report(report: str, subject: str = "Weekly grocery specials report"):
+def send_email_report(
+    report: str,
+    subject: str = "Weekly grocery specials report",
+    html_report: Optional[str] = None,
+):
     """Send the report via SMTP using the configured auth settings."""
     email_config_path, cfg = load_email_config()
     if email_config_path is None:
@@ -1057,6 +1202,8 @@ def send_email_report(report: str, subject: str = "Weekly grocery specials repor
     msg["From"] = gmail_user
     msg["To"] = to_email
     msg.set_content(report)
+    if html_report:
+        msg.add_alternative(html_report, subtype="html")
 
     context = ssl.create_default_context() if smtp_use_tls else None
     with smtplib.SMTP(smtp_host, smtp_port) as server:
@@ -1086,6 +1233,52 @@ def build_email_test_report() -> str:
             "",
             "If you received this email, the email configuration is working.",
         ]
+    )
+
+
+def build_email_test_html_report() -> str:
+    """Return a small sample HTML table report for email testing."""
+    return (
+        "<html><body style=\"font-family: Arial, sans-serif; color: #222;\">"
+        "<h2>Email Test</h2>"
+        "<p>This is a sample specials report used to verify email delivery.</p>"
+        "<h2>Sample Item</h2>"
+        "<table style=\"border-collapse: collapse; width: 100%;\">"
+        "<thead><tr>"
+        "<th style=\"border: 1px solid #ccc; background: #f5f5f5; padding: 8px; "
+        "text-align: left;\">Store</th>"
+        "<th style=\"border: 1px solid #ccc; background: #f5f5f5; padding: 8px; "
+        "text-align: left;\">Product</th>"
+        "<th style=\"border: 1px solid #ccc; background: #f5f5f5; padding: 8px; "
+        "text-align: left;\">Brand</th>"
+        "<th style=\"border: 1px solid #ccc; background: #f5f5f5; padding: 8px; "
+        "text-align: left;\">Price</th>"
+        "<th style=\"border: 1px solid #ccc; background: #f5f5f5; padding: 8px; "
+        "text-align: left;\">Size</th>"
+        "<th style=\"border: 1px solid #ccc; background: #f5f5f5; padding: 8px; "
+        "text-align: left;\">Link</th>"
+        "</tr></thead><tbody>"
+        "<tr>"
+        "<td style=\"border: 1px solid #ccc; padding: 8px;\">Coles</td>"
+        "<td style=\"border: 1px solid #ccc; padding: 8px;\">Example Product</td>"
+        "<td style=\"border: 1px solid #ccc; padding: 8px;\">Example Brand</td>"
+        "<td style=\"border: 1px solid #ccc; padding: 8px;\">$4.50</td>"
+        "<td style=\"border: 1px solid #ccc; padding: 8px;\">165g</td>"
+        "<td style=\"border: 1px solid #ccc; padding: 8px;\">"
+        "<a href=\"https://example.com/coles\">Open</a></td>"
+        "</tr>"
+        "<tr>"
+        "<td style=\"border: 1px solid #ccc; padding: 8px;\">Woolworths</td>"
+        "<td style=\"border: 1px solid #ccc; padding: 8px;\">Example Product</td>"
+        "<td style=\"border: 1px solid #ccc; padding: 8px;\">Example Brand</td>"
+        "<td style=\"border: 1px solid #ccc; padding: 8px;\">$4.80</td>"
+        "<td style=\"border: 1px solid #ccc; padding: 8px;\">180g</td>"
+        "<td style=\"border: 1px solid #ccc; padding: 8px;\">"
+        "<a href=\"https://example.com/woolworths\">Open</a></td>"
+        "</tr>"
+        "</tbody></table>"
+        "<p>If you received this email, the email configuration is working.</p>"
+        "</body></html>"
     )
 
 
@@ -1179,7 +1372,18 @@ def main(send_email: bool = True, testing_mode: bool = False):
         _record_limit_warning(limit_error)
         print(f"[ERROR] {limit_error}")
 
-    report = build_report(all_offers, limit_warnings=LIMIT_WARNINGS)
+    _, email_cfg = load_email_config()
+    report_verbose = _coerce_bool(email_cfg.get("report_verbose"), default=False)
+    report = build_report(
+        all_offers,
+        limit_warnings=LIMIT_WARNINGS,
+        verbose=report_verbose,
+    )
+    html_report = build_html_report(
+        all_offers,
+        limit_warnings=LIMIT_WARNINGS,
+        verbose=report_verbose,
+    )
     print(report)
 
     if testing_mode:
@@ -1202,7 +1406,7 @@ def main(send_email: bool = True, testing_mode: bool = False):
                 print(f"  - {msg}")
 
     if send_email and not testing_mode and report.strip():
-        send_email_report(report)
+        send_email_report(report, html_report=html_report)
 
 
 if __name__ == "__main__":
@@ -1247,6 +1451,7 @@ if __name__ == "__main__":
                     "Email test - grocery specials checker",
                 )
             ),
+            html_report=build_email_test_html_report(),
         )
     elif args.test_coles:
         run_test_coles(args.test_coles)

@@ -138,6 +138,7 @@ smtp_port: 587
 smtp_use_tls: true
 email_subject: "Weekly grocery specials report"
 email_test_subject: "Email test - grocery specials checker"
+report_verbose: false
 to_email: "where_to_send_report@gmail.com"
 ```
 
@@ -149,6 +150,8 @@ Notes:
   Gmail SMTP settings shown above
 - `email_subject` controls the normal report subject line
 - `email_test_subject` controls the `--test-email` subject line
+- emails include an HTML table view with a plain-text fallback
+- `report_verbose: true` adds extra columns such as previous price and barcode
 - Gmail often rejects regular password SMTP logins unless the account/provider
   explicitly allows them, so `app_password` is usually the safer option
 
@@ -196,6 +199,28 @@ items:
   products whose current price is known but previous price is not.
 - `only_half_price` - if `true`, only keep results that appear to be about 50%
   off.
+
+Matching notes:
+
+- matching checks the combined product title, brand, and size fields
+- exact phrase matches are preferred first
+- if the full phrase is not found, matching falls back to token coverage
+- punctuation and apostrophes are normalised, so `smith's` and `smiths` match
+  sensibly
+- simple singular/plural variants are treated as equivalent in token matching
+- `exclude_keywords` uses the same logic and is applied before final inclusion
+
+Examples:
+
+- `match_keywords: ["tim tam"]` matches `Arnott's Tim Tam Choc Mint Biscuits`
+- `match_keywords: ["smith chips"]` can still match `Smith's Crinkle Cut Potato Chips`
+- `match_keywords: ["165g"]` can match a product through its size field
+- `match_keywords: ["tim tam 165g"]` can match using both title and size
+- `exclude_keywords: ["lunchbox"]` removes lunchbox variants before reporting
+- `exclude_keywords: ["lunchbox", "mega size"]` removes products matching
+  either exclusion term
+- `exclude_keywords: ["6 pack"]` removes multipacks if that text appears in the
+  title, brand, or size
 
 You can also add API usage limits at the top level of `watchlist.yaml`, though
 `config/limits.yaml` is cleaner:

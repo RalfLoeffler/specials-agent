@@ -8,4 +8,5 @@ smtp_port: 587
 smtp_use_tls: true
 email_subject: "Weekly grocery specials report"
 email_test_subject: "Email test - grocery specials checker"
+report_verbose: false
 to_email: "where_to_send_report@gmail.com"
