@@ -858,6 +858,7 @@ def collect_offers_by_keyword(watchlist: List[WatchItem]) -> Dict[str, List[Offe
                             name=keyword,
                             match_keywords=[keyword],
                             exclude_keywords=[],
+                            stores=[store],
                             include_unknown_half_price=True,
                             only_half_price=False,
                         ),
