@@ -309,6 +309,7 @@ class WatchItem:
     stores: List[str]
     include_unknown_half_price: bool = True
     only_half_price: bool = False
+    email_indices: Optional[List[int]] = None
 
 
 @dataclass
@@ -348,9 +349,89 @@ def load_watchlist(path: str = "watchlist.yaml") -> List[WatchItem]:
                     raw.get("include_unknown_half_price", True)
                 ),
                 only_half_price=bool(raw.get("only_half_price", False)),
+                email_indices=_normalise_email_indices(
+                    raw.get("email_indices", raw.get("email_index"))
+                ),
             )
         )
     return items
+
+
+def _normalise_email_indices(value: object) -> Optional[List[int]]:
+    """Normalise optional email recipient index selectors from YAML."""
+    if value in (None, ""):
+        return None
+
+    raw_values = value if isinstance(value, list) else [value]
+    indices: List[int] = []
+    for raw_value in raw_values:
+        try:
+            index = int(raw_value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "watchlist email_index/email_indices values must be integers"
+            ) from exc
+        if index < 0:
+            raise ValueError(
+                "watchlist email_index/email_indices values must be zero or greater"
+            )
+        if index not in indices:
+            indices.append(index)
+
+    return indices or None
+
+
+def get_email_recipients(cfg: Dict[str, Any]) -> List[str]:
+    """Return the configured recipient list in index order."""
+    recipients_raw = cfg.get("to_emails")
+    recipients: List[str] = []
+    if recipients_raw not in (None, ""):
+        if not isinstance(recipients_raw, list):
+            raise ValueError("email_config to_emails must be a list of addresses")
+        for entry in recipients_raw:
+            text = str(entry).strip()
+            if text and text not in recipients:
+                recipients.append(text)
+    else:
+        primary = str(cfg.get("to_email", cfg.get("gmail_user", ""))).strip()
+        if primary:
+            recipients.append(primary)
+
+    return recipients
+
+
+def validate_watchlist_email_indices(
+    watchlist: List[WatchItem], recipients: List[str]
+) -> None:
+    """Ensure watchlist email indices point at configured recipients."""
+    if not recipients:
+        return
+
+    max_index = len(recipients) - 1
+    for watch_item in watchlist:
+        if not watch_item.email_indices:
+            continue
+        for index in watch_item.email_indices:
+            if index > max_index:
+                raise ValueError(
+                    "watchlist item "
+                    f"{watch_item.name!r} references email index {index}, "
+                    f"but only indices 0..{max_index} exist in email_config.yaml"
+                )
+
+
+def select_offers_for_email_recipient(
+    watchlist: List[WatchItem],
+    all_offers: Dict[str, List[Offer]],
+    recipient_index: int,
+) -> Dict[str, List[Offer]]:
+    """Return the watchlist subset intended for one recipient."""
+    selected: Dict[str, List[Offer]] = {}
+    for watch_item in watchlist:
+        if watch_item.email_indices and recipient_index not in watch_item.email_indices:
+            continue
+        selected[watch_item.name] = all_offers.get(watch_item.name, [])
+    return selected
 
 
 # =========================
@@ -1164,6 +1245,7 @@ def send_email_report(
     report: str,
     subject: str = "Weekly grocery specials report",
     html_report: Optional[str] = None,
+    to_email: Optional[str] = None,
 ):
     """Send the report via SMTP using the configured auth settings."""
     email_config_path, cfg = load_email_config()
@@ -1191,16 +1273,20 @@ def send_email_report(
             f"'{auth_mode}'"
         )
 
-    to_email = cfg.get("to_email", gmail_user)
+    recipient = str(to_email or cfg.get("to_email", gmail_user)).strip() or gmail_user
     smtp_host = str(cfg.get("smtp_host", "smtp.gmail.com")).strip()
     smtp_port = int(cfg.get("smtp_port", 587))
-    smtp_use_tls = bool(cfg.get("smtp_use_tls", True))
-    email_subject = str(cfg.get("email_subject", subject)).strip() or subject
+    smtp_use_tls = _coerce_bool(cfg.get("smtp_use_tls"), default=True)
+    email_subject = str(subject).strip() or "Weekly grocery specials report"
+    if email_subject == "Weekly grocery specials report":
+        email_subject = (
+            str(cfg.get("email_subject", email_subject)).strip() or email_subject
+        )
 
     msg = EmailMessage()
     msg["Subject"] = email_subject
     msg["From"] = gmail_user
-    msg["To"] = to_email
+    msg["To"] = recipient
     msg.set_content(report)
     if html_report:
         msg.add_alternative(html_report, subtype="html")
@@ -1211,7 +1297,7 @@ def send_email_report(
             server.starttls(context=context)
         server.login(gmail_user, gmail_password)
         server.send_message(msg)
-    print(f"[INFO] Report emailed to {to_email}")
+    print(f"[INFO] Report emailed to {recipient}")
 
 
 def build_email_test_report() -> str:
@@ -1374,6 +1460,8 @@ def main(send_email: bool = True, testing_mode: bool = False):
 
     _, email_cfg = load_email_config()
     report_verbose = _coerce_bool(email_cfg.get("report_verbose"), default=False)
+    recipients = get_email_recipients(email_cfg)
+    validate_watchlist_email_indices(watchlist, recipients)
     report = build_report(
         all_offers,
         limit_warnings=LIMIT_WARNINGS,
@@ -1406,7 +1494,30 @@ def main(send_email: bool = True, testing_mode: bool = False):
                 print(f"  - {msg}")
 
     if send_email and not testing_mode and report.strip():
-        send_email_report(report, html_report=html_report)
+        if recipients:
+            for recipient_index, recipient in enumerate(recipients):
+                recipient_offers = select_offers_for_email_recipient(
+                    watchlist,
+                    all_offers,
+                    recipient_index,
+                )
+                if not recipient_offers:
+                    continue
+                send_email_report(
+                    build_report(
+                        recipient_offers,
+                        limit_warnings=LIMIT_WARNINGS,
+                        verbose=report_verbose,
+                    ),
+                    html_report=build_html_report(
+                        recipient_offers,
+                        limit_warnings=LIMIT_WARNINGS,
+                        verbose=report_verbose,
+                    ),
+                    to_email=recipient,
+                )
+        else:
+            send_email_report(report, html_report=html_report)
 
 
 if __name__ == "__main__":
@@ -1443,16 +1554,19 @@ if __name__ == "__main__":
 
     if args.test_email:
         _, email_cfg = load_email_config()
-        send_email_report(
-            build_email_test_report(),
-            subject=str(
-                email_cfg.get(
-                    "email_test_subject",
-                    "Email test - grocery specials checker",
-                )
-            ),
-            html_report=build_email_test_html_report(),
-        )
+        recipients = get_email_recipients(email_cfg)
+        for recipient in recipients or [None]:
+            send_email_report(
+                build_email_test_report(),
+                subject=str(
+                    email_cfg.get(
+                        "email_test_subject",
+                        "Email test - grocery specials checker",
+                    )
+                ),
+                html_report=build_email_test_html_report(),
+                to_email=recipient,
+            )
     elif args.test_coles:
         run_test_coles(args.test_coles)
     elif args.test_woolies:

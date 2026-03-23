@@ -4,7 +4,9 @@ items:
     exclude_keywords: []
     stores: ["Coles", "Woolworths"]
     include_unknown_half_price: true
-    only_half_price: true
+    only_half_price: false
+  - name: "Glow Lab"
+    match_keywords: ["glow lab"]
   - name: "Smith's Chips"
     match_keywords: ["smith chips", "smith's chips"]
     exclude_keywords: ["lunchbox"]

@@ -9,6 +9,7 @@ Columns in the generated sheet:
 - match_keywords (comma-separated)
 - exclude_keywords (comma-separated)
 - stores (comma-separated; Coles/Woolworths)
+- email_indices (optional; comma-separated zero-based recipient indices)
 - include_unknown_half_price (TRUE/FALSE)
 - only_half_price (TRUE/FALSE)
 
@@ -54,6 +55,20 @@ def _join_keywords(keywords: object) -> str:
     return buffer.getvalue().strip("\r\n")
 
 
+def _optional_csv_field(item: dict, key: str) -> str | None:
+    """Return a CSV-style field only when the source key is explicitly present."""
+    if key not in item:
+        return None
+    return _join_keywords(item.get(key))
+
+
+def _optional_bool_field(item: dict, key: str) -> bool | None:
+    """Return a boolean field only when the source key is explicitly present."""
+    if key not in item:
+        return None
+    return bool(item.get(key))
+
+
 def export_watchlist_to_excel(
     yaml_path: str = "watchlist.yaml",
     excel_path: str = "watchlist.xlsx",
@@ -71,6 +86,7 @@ def export_watchlist_to_excel(
         "match_keywords",
         "exclude_keywords",
         "stores",
+        "email_indices",
         "include_unknown_half_price",
         "only_half_price",
     ]
@@ -79,16 +95,21 @@ def export_watchlist_to_excel(
     for item in items:
         name = item.get("name", "")
         keywords_str = _join_keywords(item.get("match_keywords", []))
-        exclude_keywords_str = _join_keywords(item.get("exclude_keywords", []))
-        stores_str = _join_keywords(item.get("stores", []))
-        include_unknown_half_price = bool(item.get("include_unknown_half_price", True))
-        only_half = bool(item.get("only_half_price", False))
+        exclude_keywords_str = _optional_csv_field(item, "exclude_keywords")
+        stores_str = _optional_csv_field(item, "stores")
+        email_indices_str = _optional_csv_field(item, "email_indices")
+        include_unknown_half_price = _optional_bool_field(
+            item,
+            "include_unknown_half_price",
+        )
+        only_half = _optional_bool_field(item, "only_half_price")
         ws.append(
             [
                 name,
                 keywords_str,
                 exclude_keywords_str,
                 stores_str,
+                email_indices_str,
                 include_unknown_half_price,
                 only_half,
             ]

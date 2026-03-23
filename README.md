@@ -31,7 +31,7 @@ From either API's code snippets panel, copy your `X-RapidAPI-Key`.
 - `watchlist.yaml`
   Watchlist data and optional `api_limits`.
 - `config/email_config.yaml.example`
-  Template for SMTP credentials and target address.
+  Template for SMTP credentials and one or more target addresses.
 - `config/limits.yaml.example`
   Template for monthly API warning and hard limits.
 - `config/secrets.example.yaml`
@@ -140,6 +140,10 @@ email_subject: "Weekly grocery specials report"
 email_test_subject: "Email test - grocery specials checker"
 report_verbose: false
 to_email: "where_to_send_report@gmail.com"
+# Optional indexed recipient list used by watchlist email_index/email_indices.
+# to_emails:
+#   - "where_to_send_report@gmail.com"   # index 0
+#   - "someone_else@gmail.com"           # index 1
 ```
 
 Notes:
@@ -152,6 +156,9 @@ Notes:
 - `email_test_subject` controls the `--test-email` subject line
 - emails include an HTML table view with a plain-text fallback
 - `report_verbose: true` adds extra columns such as previous price and barcode
+- `to_email` keeps the original single-recipient behaviour
+- `to_emails` is an optional ordered recipient list; when present, watchlist
+  entries can route matches by zero-based index
 - Gmail often rejects regular password SMTP logins unless the account/provider
   explicitly allows them, so `app_password` is usually the safer option
 
@@ -180,14 +187,20 @@ items:
     match_keywords: ["tim tam"]
     exclude_keywords: []
     stores: ["Coles", "Woolworths"]
+    email_indices: [0]
     include_unknown_half_price: true
     only_half_price: true
   - name: "Smith's Chips"
     match_keywords: ["smith chips", "smith's chips"]
     exclude_keywords: ["lunchbox"]
     stores: ["Coles", "Woolworths"]
+    email_index: 1
     include_unknown_half_price: true
     only_half_price: false
+  - name: "Glow Lab"
+    match_keywords: ["glow lab"]
+    # No email_index/email_indices means send this item to every configured
+    # recipient.
 ```
 
 - `name` - friendly label for the item.
@@ -199,6 +212,10 @@ items:
   products whose current price is known but previous price is not.
 - `only_half_price` - if `true`, only keep results that appear to be about 50%
   off.
+- `email_index` - optional zero-based recipient index for a single target
+  address from `to_emails`.
+- `email_indices` - optional list of zero-based recipient indices when the item
+  should go to multiple configured addresses.
 
 Matching notes:
 
@@ -209,6 +226,31 @@ Matching notes:
   sensibly
 - simple singular/plural variants are treated as equivalent in token matching
 - `exclude_keywords` uses the same logic and is applied before final inclusion
+- if `email_index` / `email_indices` is omitted, that watchlist item is
+  included in every recipient's email
+- if `to_emails` is not configured, the checker falls back to `to_email`
+
+Routing example:
+
+```yaml
+# config/email_config.yaml
+to_emails:
+  - "household@example.com"  # index 0
+  - "snacks@example.com"     # index 1
+  - "beauty@example.com"     # index 2
+
+# watchlist.yaml
+items:
+  - name: "Tim Tam"
+    match_keywords: ["tim tam"]
+    email_index: 1
+  - name: "Glow Lab"
+    match_keywords: ["glow lab"]
+    email_indices: [0, 2]
+  - name: "Milk"
+    match_keywords: ["milk"]
+    # no index => sent to all three recipients
+```
 
 Examples:
 
@@ -260,6 +302,7 @@ Expected columns:
 - `match_keywords`
 - `exclude_keywords` (optional)
 - `stores` (optional)
+- `email_indices` (optional)
 - `include_unknown_half_price` (optional)
 - `only_half_price` (optional)
 
@@ -267,6 +310,7 @@ If the optional columns are missing during import, these defaults are used:
 
 - `exclude_keywords: []`
 - `stores: ["Coles", "Woolworths"]`
+- `email_indices`: omitted
 - `include_unknown_half_price: true`
 - `only_half_price: false`
 

@@ -9,6 +9,7 @@ Expected columns (case-insensitive):
 - match_keywords (comma-separated)
 - exclude_keywords (optional; comma-separated)
 - stores (optional; comma-separated; blank means both stores)
+- email_indices (optional; comma-separated zero-based recipient indices)
 - include_unknown_half_price (optional; TRUE/FALSE/Yes/No/1/0)
 - only_half_price (optional; TRUE/FALSE/Yes/No/1/0)
 
@@ -62,6 +63,26 @@ def _split_keywords(cell_value: object) -> List[str]:
     reader = csv.reader(StringIO(text), skipinitialspace=True)
     parts = next(reader, [])
     return [part.strip() for part in parts if part and part.strip()]
+
+
+def _split_email_indices(cell_value: object) -> List[int]:
+    """Split an optional CSV-style recipient index cell into integers."""
+    values = _split_keywords(cell_value)
+    indices: List[int] = []
+    for value in values:
+        try:
+            index = int(value)
+        except ValueError as exc:
+            raise ValueError(
+                f"email_indices values must be integers; got {value!r}"
+            ) from exc
+        if index < 0:
+            raise ValueError(
+                f"email_indices values must be zero or greater; got {index}"
+            )
+        if index not in indices:
+            indices.append(index)
+    return indices
 
 
 def _load_existing_yaml(yaml_path: str) -> Dict[str, object]:
@@ -118,6 +139,7 @@ def import_watchlist_from_excel(
         keywords_cell = row[header_map["match_keywords"]]
         exclude_keywords_cell = _cell_value(row, header_map, "exclude_keywords")
         stores_cell = _cell_value(row, header_map, "stores")
+        email_indices_cell = _cell_value(row, header_map, "email_indices")
         include_unknown_half_price_cell = _cell_value(
             row,
             header_map,
@@ -125,24 +147,27 @@ def import_watchlist_from_excel(
         )
         only_half_cell = _cell_value(row, header_map, "only_half_price")
 
-        items.append(
-            {
-                "name": str(name).strip(),
-                "match_keywords": _split_keywords(keywords_cell),
-                "exclude_keywords": _split_keywords(exclude_keywords_cell),
-                "stores": _split_keywords(stores_cell),
-                "include_unknown_half_price": (
-                    True
-                    if include_unknown_half_price_cell is None
-                    else _bool_from_cell(include_unknown_half_price_cell)
-                ),
-                "only_half_price": (
-                    False
-                    if only_half_cell is None
-                    else _bool_from_cell(only_half_cell)
-                ),
-            }
-        )
+        item: Dict[str, object] = {
+            "name": str(name).strip(),
+            "match_keywords": _split_keywords(keywords_cell),
+            "exclude_keywords": _split_keywords(exclude_keywords_cell),
+            "stores": _split_keywords(stores_cell),
+            "include_unknown_half_price": (
+                True
+                if include_unknown_half_price_cell is None
+                else _bool_from_cell(include_unknown_half_price_cell)
+            ),
+            "only_half_price": (
+                False
+                if only_half_cell is None
+                else _bool_from_cell(only_half_cell)
+            ),
+        }
+        email_indices = _split_email_indices(email_indices_cell)
+        if email_indices:
+            item["email_indices"] = email_indices
+
+        items.append(item)
 
     data = _load_existing_yaml(yaml_path)
     data["items"] = items
