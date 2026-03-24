@@ -139,8 +139,13 @@ smtp_use_tls: true
 email_subject: "Weekly grocery specials report"
 email_test_subject: "Email test - grocery specials checker"
 report_verbose: false
+report_calls: false
 to_email: "where_to_send_report@gmail.com"
 # Optional indexed recipient list used by watchlist email_index/email_indices.
+# report_verbose can also be a list aligned with to_emails, for example:
+# report_verbose: [true, false]
+# report_calls can also be a list aligned with to_emails, for example:
+# report_calls: [true, false]
 # to_emails:
 #   - "where_to_send_report@gmail.com"   # index 0
 #   - "someone_else@gmail.com"           # index 1
@@ -156,9 +161,15 @@ Notes:
 - `email_test_subject` controls the `--test-email` subject line
 - emails include an HTML table view with a plain-text fallback
 - `report_verbose: true` adds extra columns such as previous price and barcode
+- `report_calls: true` appends the accumulated monthly API call counts to the
+  bottom of the email
 - `to_email` keeps the original single-recipient behaviour
 - `to_emails` is an optional ordered recipient list; when present, watchlist
   entries can route matches by zero-based index
+- when `to_emails` is used, `report_verbose` can be a matching list of booleans
+  so each recipient can opt in or out independently
+- when `to_emails` is used, `report_calls` can be a matching list of booleans
+  so each recipient can opt in or out independently
 - Gmail often rejects regular password SMTP logins unless the account/provider
   explicitly allows them, so `app_password` is usually the safer option
 
@@ -208,6 +219,7 @@ items:
 - `exclude_keywords` - terms that should remove products from the comparison.
 - `stores` - optional store filter. Use `["Coles"]`, `["Woolworths"]`, or both.
   If omitted or blank, the checker searches both stores.
+  Use `["none"]` to pause that watchlist item without deleting it.
 - `include_unknown_half_price` - when `only_half_price` is enabled, still show
   products whose current price is known but previous price is not.
 - `only_half_price` - if `true`, only keep results that appear to be about 50%
@@ -229,6 +241,8 @@ Matching notes:
 - if `email_index` / `email_indices` is omitted, that watchlist item is
   included in every recipient's email
 - if `to_emails` is not configured, the checker falls back to `to_email`
+- `stores: ["none"]` pauses pulling for that item, so it stays in the watchlist
+  but no store queries are run for it
 
 Routing example:
 
@@ -238,6 +252,14 @@ to_emails:
   - "household@example.com"  # index 0
   - "snacks@example.com"     # index 1
   - "beauty@example.com"     # index 2
+report_verbose:
+  - false  # household gets the compact report
+  - true   # snacks gets barcode/was-price detail
+  - false  # beauty gets the compact report
+report_calls:
+  - true   # household sees monthly API counts
+  - false  # snacks email hides them
+  - true   # beauty sees them
 
 # watchlist.yaml
 items:
@@ -302,6 +324,7 @@ Expected columns:
 - `match_keywords`
 - `exclude_keywords` (optional)
 - `stores` (optional)
+  `none` is also allowed here if you want to pause an item from Excel.
 - `email_indices` (optional)
 - `include_unknown_half_price` (optional)
 - `only_half_price` (optional)

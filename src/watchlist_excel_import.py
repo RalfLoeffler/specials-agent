@@ -8,7 +8,7 @@ Expected columns (case-insensitive):
 - name
 - match_keywords (comma-separated)
 - exclude_keywords (optional; comma-separated)
-- stores (optional; comma-separated; blank means both stores)
+- stores (optional; comma-separated; blank means both stores; `none` pauses item)
 - email_indices (optional; comma-separated zero-based recipient indices)
 - include_unknown_half_price (optional; TRUE/FALSE/Yes/No/1/0)
 - only_half_price (optional; TRUE/FALSE/Yes/No/1/0)

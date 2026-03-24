@@ -400,6 +400,21 @@ def get_email_recipients(cfg: Dict[str, Any]) -> List[str]:
     return recipients
 
 
+def get_email_bool_option(
+    cfg: Dict[str, Any],
+    key: str,
+    recipient_index: int,
+    default: bool = False,
+) -> bool:
+    """Return a per-recipient email boolean option from scalar or list config."""
+    raw_value = cfg.get(key, default)
+    if isinstance(raw_value, list):
+        if recipient_index < len(raw_value):
+            return _coerce_bool(raw_value[recipient_index], default=default)
+        return default
+    return _coerce_bool(raw_value, default=default)
+
+
 def validate_watchlist_email_indices(
     watchlist: List[WatchItem], recipients: List[str]
 ) -> None:
@@ -889,6 +904,8 @@ def _normalise_watch_stores(raw_stores: object) -> List[str]:
     for value in candidate_values:
         if not value:
             continue
+        if value.strip().lower() == "none":
+            return []
         if value.strip().lower() == "both":
             return ["Coles", "Woolworths"]
         store_name = _normalise_store_name(value)
@@ -1085,6 +1102,7 @@ def build_report(
     all_offers: Dict[str, List[Offer]],
     limit_warnings: Optional[List[str]] = None,
     verbose: bool = False,
+    api_calls_footer: Optional[str] = None,
 ) -> str:
     """Render a text report plus optional API usage warnings."""
     lines: List[str] = []
@@ -1134,6 +1152,12 @@ def build_report(
 
         lines.append("")
 
+    if api_calls_footer:
+        if lines and lines[-1] != "":
+            lines.append("")
+        lines.append("## Accumulated API calls")
+        lines.extend(api_calls_footer.splitlines())
+
     return "\n".join(lines)
 
 
@@ -1141,6 +1165,7 @@ def build_html_report(
     all_offers: Dict[str, List[Offer]],
     limit_warnings: Optional[List[str]] = None,
     verbose: bool = False,
+    api_calls_footer: Optional[str] = None,
 ) -> str:
     """Render the report as HTML tables for email clients."""
     parts: List[str] = [
@@ -1232,8 +1257,50 @@ def build_html_report(
                 f"{html.escape(cheapest.store)} at ${cheapest.price:.2f}</p>"
             )
 
+    if api_calls_footer:
+        parts.append("<h2>Accumulated API calls</h2><ul>")
+        for line in api_calls_footer.splitlines():
+            parts.append(f"<li>{html.escape(line.lstrip('- ').strip())}</li>")
+        parts.append("</ul>")
+
     parts.append("</body></html>")
     return "".join(parts)
+
+
+def build_api_calls_footer() -> str:
+    """Return the accumulated monthly API call summary for email footers."""
+    return "\n".join(
+        [
+            f"- Coles this month: {API_CALL_COUNT.get('Coles', 0)}",
+            f"- Woolworths this month: {API_CALL_COUNT.get('Woolworths', 0)}",
+        ]
+    )
+
+
+def append_api_calls_footer(report: str, api_calls_footer: Optional[str]) -> str:
+    """Append the optional API call footer to a plain-text report."""
+    if not api_calls_footer:
+        return report
+    return "\n\n".join([report.rstrip(), "## Accumulated API calls", api_calls_footer])
+
+
+def append_api_calls_footer_html(
+    html_report: str, api_calls_footer: Optional[str]
+) -> str:
+    """Append the optional API call footer to an HTML report."""
+    if not api_calls_footer:
+        return html_report
+
+    footer_parts = ["<h2>Accumulated API calls</h2><ul>"]
+    for line in api_calls_footer.splitlines():
+        footer_parts.append(f"<li>{html.escape(line.lstrip('- ').strip())}</li>")
+    footer_parts.append("</ul>")
+    footer_html = "".join(footer_parts)
+
+    closing_tag = "</body></html>"
+    if html_report.endswith(closing_tag):
+        return html_report[: -len(closing_tag)] + footer_html + closing_tag
+    return html_report + footer_html
 
 
 # =========================
@@ -1459,18 +1526,30 @@ def main(send_email: bool = True, testing_mode: bool = False):
         print(f"[ERROR] {limit_error}")
 
     _, email_cfg = load_email_config()
-    report_verbose = _coerce_bool(email_cfg.get("report_verbose"), default=False)
     recipients = get_email_recipients(email_cfg)
     validate_watchlist_email_indices(watchlist, recipients)
+    default_api_calls_footer = (
+        build_api_calls_footer()
+        if get_email_bool_option(email_cfg, "report_calls", 0, default=False)
+        else None
+    )
+    default_report_verbose = get_email_bool_option(
+        email_cfg,
+        "report_verbose",
+        0,
+        default=False,
+    )
     report = build_report(
         all_offers,
         limit_warnings=LIMIT_WARNINGS,
-        verbose=report_verbose,
+        verbose=default_report_verbose,
+        api_calls_footer=default_api_calls_footer,
     )
     html_report = build_html_report(
         all_offers,
         limit_warnings=LIMIT_WARNINGS,
-        verbose=report_verbose,
+        verbose=default_report_verbose,
+        api_calls_footer=default_api_calls_footer,
     )
     print(report)
 
@@ -1503,16 +1582,34 @@ def main(send_email: bool = True, testing_mode: bool = False):
                 )
                 if not recipient_offers:
                     continue
+                report_verbose = get_email_bool_option(
+                    email_cfg,
+                    "report_verbose",
+                    recipient_index,
+                    default=False,
+                )
+                api_calls_footer = (
+                    build_api_calls_footer()
+                    if get_email_bool_option(
+                        email_cfg,
+                        "report_calls",
+                        recipient_index,
+                        default=False,
+                    )
+                    else None
+                )
                 send_email_report(
                     build_report(
                         recipient_offers,
                         limit_warnings=LIMIT_WARNINGS,
                         verbose=report_verbose,
+                        api_calls_footer=api_calls_footer,
                     ),
                     html_report=build_html_report(
                         recipient_offers,
                         limit_warnings=LIMIT_WARNINGS,
                         verbose=report_verbose,
+                        api_calls_footer=api_calls_footer,
                     ),
                     to_email=recipient,
                 )
@@ -1555,16 +1652,32 @@ if __name__ == "__main__":
     if args.test_email:
         _, email_cfg = load_email_config()
         recipients = get_email_recipients(email_cfg)
-        for recipient in recipients or [None]:
+        for recipient_index, recipient in enumerate(recipients or [None]):
+            api_calls_footer = (
+                build_api_calls_footer()
+                if get_email_bool_option(
+                    email_cfg,
+                    "report_calls",
+                    recipient_index,
+                    default=False,
+                )
+                else None
+            )
             send_email_report(
-                build_email_test_report(),
+                append_api_calls_footer(
+                    build_email_test_report(),
+                    api_calls_footer,
+                ),
                 subject=str(
                     email_cfg.get(
                         "email_test_subject",
                         "Email test - grocery specials checker",
                     )
                 ),
-                html_report=build_email_test_html_report(),
+                html_report=append_api_calls_footer_html(
+                    build_email_test_html_report(),
+                    api_calls_footer,
+                ),
                 to_email=recipient,
             )
     elif args.test_coles:

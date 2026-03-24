@@ -8,7 +8,7 @@ Columns in the generated sheet:
 - name
 - match_keywords (comma-separated)
 - exclude_keywords (comma-separated)
-- stores (comma-separated; Coles/Woolworths)
+- stores (comma-separated; Coles/Woolworths/none)
 - email_indices (optional; comma-separated zero-based recipient indices)
 - include_unknown_half_price (TRUE/FALSE)
 - only_half_price (TRUE/FALSE)
