@@ -1,0 +1,34 @@
+import http.client
+
+conn = http.client.HTTPSConnection("coles-product-price-api.p.rapidapi.com")
+
+headers = {
+    'x-rapidapi-key': "64548bbed3msh34201d94d9cb45cp13bd94jsn49a1b5a1ffb0",
+    'x-rapidapi-host': "coles-product-price-api.p.rapidapi.com",
+    'Content-Type': "application/json"
+}
+
+conn.request("GET", "/coles/price-changes/?date=2025-03-02&page=1&page_size=20", headers=headers)
+
+res = conn.getresponse()
+data = res.read()
+
+print(data.decode("utf-8"))
+
+
+import http.client
+
+conn = http.client.HTTPSConnection("woolworths-products-api.p.rapidapi.com")
+
+headers = {
+    'x-rapidapi-key': "64548bbed3msh34201d94d9cb45cp13bd94jsn49a1b5a1ffb0",
+    'x-rapidapi-host': "woolworths-products-api.p.rapidapi.com",
+    'Content-Type': "application/json"
+}
+
+conn.request("GET", "/woolworths/price-changes/?page=1&page_size=20", headers=headers)
+
+res = conn.getresponse()
+data = res.read()
+
+print(data.decode("utf-8"))
