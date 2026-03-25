@@ -28,9 +28,9 @@ From either API's code snippets panel, copy your `X-RapidAPI-Key`.
 - `src/specials_checker.py`
   Main script with API calls, watchlist handling, report generation, email
   sending, and test helpers.
-- `src/watchlist_excel_export.py`
+- `src/export_watchlist_to_excel.py`
   Exports `watchlist.yaml` to Excel for easier editing.
-- `src/watchlist_excel_import.py`
+- `src/import_watchlist_from_excel.py`
   Imports Excel watchlist edits back into `watchlist.yaml`.
 - `watchlist.yaml`
   Watchlist data plus optional `api_limits`, email routing, and numeric filters.
@@ -342,13 +342,13 @@ These helpers require `openpyxl`.
 Export YAML to Excel:
 
 ```bash
-python -m src.watchlist_excel_export --yaml watchlist.yaml --excel watchlist.xlsx
+python -m src.export_watchlist_to_excel --yaml watchlist.yaml --excel watchlist.xlsx
 ```
 
 Import Excel back to YAML:
 
 ```bash
-python -m src.watchlist_excel_import --excel watchlist.xlsx --yaml watchlist.yaml
+python -m src.import_watchlist_from_excel --excel watchlist.xlsx --yaml watchlist.yaml
 ```
 
 Expected columns:
@@ -393,14 +393,14 @@ powershell -ExecutionPolicy Bypass -File .\scripts\build_excel_tools.ps1 -Python
 
 This builds:
 
-- `dist\excel-tools\watchlist_excel_export.exe`
-- `dist\excel-tools\watchlist_excel_import.exe`
+- `dist\excel-tools\export_watchlist_to_excel.exe`
+- `dist\excel-tools\import_watchlist_from_excel.exe`
 
 Example usage:
 
 ```powershell
-.\dist\excel-tools\watchlist_excel_export.exe --yaml watchlist.yaml --excel watchlist.xlsx
-.\dist\excel-tools\watchlist_excel_import.exe --excel watchlist.xlsx --yaml watchlist.yaml
+.\dist\excel-tools\export_watchlist_to_excel.exe --yaml watchlist.yaml --excel watchlist.xlsx
+.\dist\excel-tools\import_watchlist_from_excel.exe --excel watchlist.xlsx --yaml watchlist.yaml
 ```
 ---
 
@@ -431,8 +431,8 @@ python src/specials_checker.py --no-email
 python src/specials_checker.py
 
 # Export and re-import the watchlist through Excel
-python -m src.watchlist_excel_export --yaml watchlist.yaml --excel watchlist.xlsx
-python -m src.watchlist_excel_import --excel watchlist.xlsx --yaml watchlist.yaml
+python -m src.export_watchlist_to_excel --yaml watchlist.yaml --excel watchlist.xlsx
+python -m src.import_watchlist_from_excel --excel watchlist.xlsx --yaml watchlist.yaml
 ```
 
 Optional maintenance commands:
@@ -440,7 +440,7 @@ Optional maintenance commands:
 ```bash
 python -m ruff check src
 python -m black src
-python -m compileall src/watchlist_excel_import.py src/watchlist_excel_export.py src/specials_checker.py
+python -m compileall src/import_watchlist_from_excel.py src/export_watchlist_to_excel.py src/specials_checker.py
 ```
 
 If needed:

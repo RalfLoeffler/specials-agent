@@ -53,24 +53,24 @@ $commonArgs = @(
     "--specpath", $buildRoot
 )
 
-Write-Host "[INFO] Building watchlist_excel_export.exe..."
+Write-Host "[INFO] Building export_watchlist_to_excel.exe..."
 & $Python @commonArgs `
-    "--name" "watchlist_excel_export" `
-    (Join-Path $repoRoot "src\watchlist_excel_export.py")
+    "--name" "export_watchlist_to_excel" `
+    (Join-Path $repoRoot "src\export_watchlist_to_excel.py")
 if ($LASTEXITCODE -ne 0) {
-    throw "Failed to build watchlist_excel_export.exe"
+    throw "Failed to build export_watchlist_to_excel.exe"
 }
 
-Write-Host "[INFO] Building watchlist_excel_import.exe..."
+Write-Host "[INFO] Building import_watchlist_from_excel.exe..."
 & $Python @commonArgs `
-    "--name" "watchlist_excel_import" `
-    (Join-Path $repoRoot "src\watchlist_excel_import.py")
+    "--name" "import_watchlist_from_excel" `
+    (Join-Path $repoRoot "src\import_watchlist_from_excel.py")
 if ($LASTEXITCODE -ne 0) {
-    throw "Failed to build watchlist_excel_import.exe"
+    throw "Failed to build import_watchlist_from_excel.exe"
 }
 
-$exportExe = Join-Path $distRoot "watchlist_excel_export.exe"
-$importExe = Join-Path $distRoot "watchlist_excel_import.exe"
+$exportExe = Join-Path $distRoot "export_watchlist_to_excel.exe"
+$importExe = Join-Path $distRoot "import_watchlist_from_excel.exe"
 if (-not (Test-Path $exportExe) -or -not (Test-Path $importExe)) {
     throw "Build finished without producing the expected executable files."
 }

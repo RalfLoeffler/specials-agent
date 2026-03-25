@@ -1,7 +1,7 @@
 """Import a watchlist Excel sheet and write watchlist.yaml.
 
 Usage:
-    python -m src.watchlist_excel_import --excel watchlist.xlsx \
+    python -m src.import_watchlist_from_excel --excel watchlist.xlsx \
         --yaml watchlist.yaml
 
 Expected columns (case-insensitive):
@@ -204,9 +204,9 @@ def main():
         description="Import an Excel watchlist and write watchlist.yaml.",
         epilog=(
             "Examples:\n"
-            "  python -m src.watchlist_excel_import "
+            "  python -m src.import_watchlist_from_excel "
             "--excel watchlist.xlsx --yaml watchlist.yaml\n"
-            "  python -m src.watchlist_excel_import "
+            "  python -m src.import_watchlist_from_excel "
             "--excel watchlist.xlsx --yaml watchlist.yaml "
             "--sheet watchlist"
         ),

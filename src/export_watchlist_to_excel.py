@@ -1,7 +1,7 @@
 """Export watchlist.yaml to an Excel sheet for easier editing.
 
 Usage:
-    python -m src.watchlist_excel_export --yaml watchlist.yaml \
+    python -m src.export_watchlist_to_excel --yaml watchlist.yaml \
         --excel watchlist.xlsx
 
 Columns in the generated sheet:
@@ -146,9 +146,9 @@ def main():
         description="Export watchlist.yaml to an Excel workbook.",
         epilog=(
             "Examples:\n"
-            "  python -m src.watchlist_excel_export "
+            "  python -m src.export_watchlist_to_excel "
             "--yaml watchlist.yaml --excel watchlist.xlsx\n"
-            "  python -m src.watchlist_excel_export "
+            "  python -m src.export_watchlist_to_excel "
             "--yaml watchlist.yaml --excel watchlist.xlsx "
             "--sheet watchlist"
         ),
