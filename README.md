@@ -28,14 +28,20 @@ From either API's code snippets panel, copy your `X-RapidAPI-Key`.
 - `src/specials_checker.py`
   Main script with API calls, watchlist handling, report generation, email
   sending, and test helpers.
+- `src/watchlist_excel_export.py`
+  Exports `watchlist.yaml` to Excel for easier editing.
+- `src/watchlist_excel_import.py`
+  Imports Excel watchlist edits back into `watchlist.yaml`.
 - `watchlist.yaml`
-  Watchlist data and optional `api_limits`.
+  Watchlist data plus optional `api_limits`, email routing, and numeric filters.
 - `config/email_config.yaml.example`
   Template for SMTP credentials and one or more target addresses.
 - `config/limits.yaml.example`
   Template for monthly API warning and hard limits.
 - `config/secrets.example.yaml`
   Template for the RapidAPI key file.
+- `scripts/build_excel_tools.ps1`
+  Builds standalone Windows executables for the Excel helper tools.
 
 ---
 
