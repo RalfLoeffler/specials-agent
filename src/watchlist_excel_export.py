@@ -7,9 +7,12 @@ Usage:
 Columns in the generated sheet:
 - name
 - match_keywords (comma-separated)
+- include_keywords (optional; comma-separated final inclusion filter)
 - exclude_keywords (comma-separated)
 - stores (comma-separated; Coles/Woolworths/none)
 - email_indices (optional; comma-separated zero-based recipient indices)
+- price_range (optional; e.g. 1-1.5 or <1.50)
+- size_range (optional; e.g. 800-1000 or 900)
 - include_unknown_half_price (TRUE/FALSE)
 - only_half_price (TRUE/FALSE)
 
@@ -69,6 +72,16 @@ def _optional_bool_field(item: dict, key: str) -> bool | None:
     return bool(item.get(key))
 
 
+def _optional_text_field(item: dict, key: str) -> str | None:
+    """Return a trimmed text field only when the source key is explicitly present."""
+    if key not in item:
+        return None
+    value = item.get(key)
+    if value in (None, ""):
+        return None
+    return str(value).strip() or None
+
+
 def export_watchlist_to_excel(
     yaml_path: str = "watchlist.yaml",
     excel_path: str = "watchlist.xlsx",
@@ -84,9 +97,12 @@ def export_watchlist_to_excel(
     headers = [
         "name",
         "match_keywords",
+        "include_keywords",
         "exclude_keywords",
         "stores",
         "email_indices",
+        "price_range",
+        "size_range",
         "include_unknown_half_price",
         "only_half_price",
     ]
@@ -95,9 +111,12 @@ def export_watchlist_to_excel(
     for item in items:
         name = item.get("name", "")
         keywords_str = _join_keywords(item.get("match_keywords", []))
+        include_keywords_str = _optional_csv_field(item, "include_keywords")
         exclude_keywords_str = _optional_csv_field(item, "exclude_keywords")
         stores_str = _optional_csv_field(item, "stores")
         email_indices_str = _optional_csv_field(item, "email_indices")
+        price_range = _optional_text_field(item, "price_range")
+        size_range = _optional_text_field(item, "size_range")
         include_unknown_half_price = _optional_bool_field(
             item,
             "include_unknown_half_price",
@@ -107,9 +126,12 @@ def export_watchlist_to_excel(
             [
                 name,
                 keywords_str,
+                include_keywords_str,
                 exclude_keywords_str,
                 stores_str,
                 email_indices_str,
+                price_range,
+                size_range,
                 include_unknown_half_price,
                 only_half,
             ]

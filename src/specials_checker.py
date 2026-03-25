@@ -305,11 +305,22 @@ def _record_api_call(store: str):
 class WatchItem:
     name: str
     match_keywords: List[str]
+    include_keywords: List[str]
     exclude_keywords: List[str]
     stores: List[str]
     include_unknown_half_price: bool = True
     only_half_price: bool = False
     email_indices: Optional[List[int]] = None
+    price_range: Optional[str] = None
+    size_range: Optional[str] = None
+
+
+@dataclass
+class NumericFilter:
+    minimum: Optional[float] = None
+    maximum: Optional[float] = None
+    include_minimum: bool = True
+    include_maximum: bool = True
 
 
 @dataclass
@@ -343,6 +354,7 @@ def load_watchlist(path: str = "watchlist.yaml") -> List[WatchItem]:
             WatchItem(
                 name=raw["name"],
                 match_keywords=list(raw["match_keywords"]),
+                include_keywords=list(raw.get("include_keywords", raw["match_keywords"])),
                 exclude_keywords=list(raw.get("exclude_keywords", [])),
                 stores=_normalise_watch_stores(raw.get("stores")),
                 include_unknown_half_price=bool(
@@ -351,6 +363,14 @@ def load_watchlist(path: str = "watchlist.yaml") -> List[WatchItem]:
                 only_half_price=bool(raw.get("only_half_price", False)),
                 email_indices=_normalise_email_indices(
                     raw.get("email_indices", raw.get("email_index"))
+                ),
+                price_range=_normalise_numeric_filter_input(
+                    raw.get("price_range"),
+                    field_name="price_range",
+                ),
+                size_range=_normalise_numeric_filter_input(
+                    raw.get("size_range"),
+                    field_name="size_range",
                 ),
             )
         )
@@ -574,6 +594,115 @@ def _coerce_bool(value: object, default: bool = False) -> bool:
     if text in {"0", "false", "no", "n", "off"}:
         return False
     return default
+
+
+def _normalise_numeric_filter_input(
+    value: object,
+    field_name: str,
+) -> Optional[str]:
+    """Normalise a numeric filter input from YAML into a compact string."""
+    if value in (None, ""):
+        return None
+    if isinstance(value, (int, float)):
+        return str(value)
+
+    text = str(value).strip()
+    if not text:
+        return None
+
+    _parse_numeric_filter_spec(text, field_name=field_name)
+    return text
+
+
+def _parse_numeric_filter_spec(
+    value: str,
+    field_name: str,
+) -> NumericFilter:
+    """Parse one numeric filter expression such as 800-1000 or <1.50."""
+    text = str(value).strip()
+    if not text:
+        raise ValueError(f"{field_name} must not be blank")
+
+    comparison_match = re.fullmatch(r"(<=|>=|<|>)\s*(\d+(?:\.\d+)?)", text)
+    if comparison_match:
+        operator, number_text = comparison_match.groups()
+        number = float(number_text)
+        if operator == "<":
+            return NumericFilter(maximum=number, include_maximum=False)
+        if operator == "<=":
+            return NumericFilter(maximum=number, include_maximum=True)
+        if operator == ">":
+            return NumericFilter(minimum=number, include_minimum=False)
+        return NumericFilter(minimum=number, include_minimum=True)
+
+    range_match = re.fullmatch(
+        r"(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)",
+        text,
+    )
+    if range_match:
+        minimum_text, maximum_text = range_match.groups()
+        minimum = float(minimum_text)
+        maximum = float(maximum_text)
+        if minimum > maximum:
+            raise ValueError(
+                f"{field_name} range minimum must be less than or equal to maximum"
+            )
+        return NumericFilter(minimum=minimum, maximum=maximum)
+
+    exact_match = re.fullmatch(r"\d+(?:\.\d+)?", text)
+    if exact_match:
+        number = float(text)
+        return NumericFilter(minimum=number, maximum=number)
+
+    raise ValueError(
+        f"{field_name} must be numeric-only input like 900, 800-1000, or <1.50"
+    )
+
+
+def _extract_numeric_value(value: object) -> Optional[float]:
+    """Extract the first numeric value from a scalar such as $1.50 or 900ml."""
+    if value in (None, ""):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+
+    text = str(value).strip().replace(",", "")
+    match = re.search(r"\d+(?:\.\d+)?", text)
+    if not match:
+        return None
+    return float(match.group(0))
+
+
+def _numeric_filter_matches(
+    raw_value: object,
+    filter_spec: Optional[str],
+    field_name: str,
+) -> bool:
+    """Return True when a value passes the configured numeric filter."""
+    if not filter_spec:
+        return True
+
+    numeric_value = _extract_numeric_value(raw_value)
+    if numeric_value is None:
+        return False
+
+    numeric_filter = _parse_numeric_filter_spec(filter_spec, field_name=field_name)
+
+    if numeric_filter.minimum is not None:
+        if numeric_filter.include_minimum:
+            if numeric_value < numeric_filter.minimum:
+                return False
+        elif numeric_value <= numeric_filter.minimum:
+            return False
+
+    if numeric_filter.maximum is not None:
+        if numeric_filter.include_maximum:
+            if numeric_value > numeric_filter.maximum:
+                return False
+        elif numeric_value >= numeric_filter.maximum:
+            return False
+
+    return True
 
 
 def extract_products_from_response(data: dict) -> List[dict]:
@@ -1009,10 +1138,13 @@ def collect_offers_by_keyword(watchlist: List[WatchItem]) -> Dict[str, List[Offe
                         WatchItem(
                             name=keyword,
                             match_keywords=[keyword],
+                            include_keywords=[keyword],
                             exclude_keywords=[],
                             stores=[store],
                             include_unknown_half_price=True,
                             only_half_price=False,
+                            price_range=None,
+                            size_range=None,
                         ),
                         keyword,
                         store,
@@ -1036,6 +1168,8 @@ def find_offers_for_watch_item(
     """Reuse searched keyword results and filter them for one watch item."""
     offers: List[Offer] = []
     seen_offer_keys: set[Tuple[object, ...]] = set()
+
+    include_keywords = watch_item.include_keywords or watch_item.match_keywords
 
     for keyword in watch_item.match_keywords:
         normalised_keyword = _normalise_keyword_for_search(keyword)
@@ -1082,8 +1216,8 @@ def find_offers_for_watch_item(
         offer
         for offer in offers
         if any(
-            _keyword_matches_offer(match_keyword, offer)
-            for match_keyword in watch_item.match_keywords
+            _keyword_matches_offer(include_keyword, offer)
+            for include_keyword in include_keywords
         )
     ]
 
@@ -1093,6 +1227,28 @@ def find_offers_for_watch_item(
             for offer in offers
             if offer.is_half_price
             or (watch_item.include_unknown_half_price and offer.was_price is None)
+        ]
+
+    if watch_item.price_range:
+        offers = [
+            offer
+            for offer in offers
+            if _numeric_filter_matches(
+                offer.price,
+                watch_item.price_range,
+                field_name="price_range",
+            )
+        ]
+
+    if watch_item.size_range:
+        offers = [
+            offer
+            for offer in offers
+            if _numeric_filter_matches(
+                offer.size,
+                watch_item.size_range,
+                field_name="size_range",
+            )
         ]
 
     return offers
@@ -1506,11 +1662,15 @@ def run_test_woolies(keyword: str):
 # =========================
 
 
-def main(send_email: bool = True, testing_mode: bool = False):
+def main(
+    send_email: bool = True,
+    testing_mode: bool = False,
+    watchlist_path: str = "watchlist.yaml",
+):
     """Run the full flow: load watchlist, fetch offers, report, email."""
     RUN_API_CALL_COUNT["Coles"] = 0
     RUN_API_CALL_COUNT["Woolworths"] = 0
-    watchlist = load_watchlist("watchlist.yaml")
+    watchlist = load_watchlist(watchlist_path)
     all_offers: Dict[str, List[Offer]] = {}
 
     limit_error: Optional[str] = None
@@ -1646,6 +1806,11 @@ if __name__ == "__main__":
         action="store_true",
         help="Send a sample email report without calling the product APIs.",
     )
+    parser.add_argument(
+        "--watchlist",
+        default="watchlist.yaml",
+        help="Path to the watchlist YAML file (default: watchlist.yaml).",
+    )
 
     args = parser.parse_args()
 
@@ -1686,4 +1851,8 @@ if __name__ == "__main__":
         run_test_woolies(args.test_woolies)
     else:
         suppress_email = args.no_email or args.testing
-        main(send_email=not suppress_email, testing_mode=args.testing)
+        main(
+            send_email=not suppress_email,
+            testing_mode=args.testing,
+            watchlist_path=args.watchlist,
+        )

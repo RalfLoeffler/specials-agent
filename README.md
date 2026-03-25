@@ -196,16 +196,21 @@ Example:
 items:
   - name: "Tim Tam"
     match_keywords: ["tim tam"]
+    include_keywords: ["tim tam", "tim tams"]
     exclude_keywords: []
     stores: ["Coles", "Woolworths"]
     email_indices: [0]
+    price_range: "<5.00"
+    size_range: "150-200"
     include_unknown_half_price: true
     only_half_price: true
   - name: "Smith's Chips"
     match_keywords: ["smith chips", "smith's chips"]
+    include_keywords: ["smith chips", "smith's chips", "crinkle cut"]
     exclude_keywords: ["lunchbox"]
     stores: ["Coles", "Woolworths"]
     email_index: 1
+    size_range: "150-200"
     include_unknown_half_price: true
     only_half_price: false
   - name: "Glow Lab"
@@ -216,6 +221,8 @@ items:
 
 - `name` - friendly label for the item.
 - `match_keywords` - search terms used against both stores.
+- `include_keywords` - optional final inclusion filter used after API results are
+  fetched. If omitted, it falls back to `match_keywords`.
 - `exclude_keywords` - terms that should remove products from the comparison.
 - `stores` - optional store filter. Use `["Coles"]`, `["Woolworths"]`, or both.
   If omitted or blank, the checker searches both stores.
@@ -224,6 +231,10 @@ items:
   products whose current price is known but previous price is not.
 - `only_half_price` - if `true`, only keep results that appear to be about 50%
   off.
+- `price_range` - optional numeric price filter such as `1.50`, `1-1.50`,
+  `<1.50`, `<=1.50`, `>2`, or `>=2`.
+- `size_range` - optional numeric size filter such as `900`, `800-1000`,
+  `<1000`, `<=1000`, `>800`, or `>=800`.
 - `email_index` - optional zero-based recipient index for a single target
   address from `to_emails`.
 - `email_indices` - optional list of zero-based recipient indices when the item
@@ -232,12 +243,22 @@ items:
 Matching notes:
 
 - matching checks the combined product title, brand, and size fields
+- `match_keywords` drives the API search step
+- `include_keywords` is applied after the API response is fetched, just before
+  final inclusion in the report/email
 - exact phrase matches are preferred first
 - if the full phrase is not found, matching falls back to token coverage
 - punctuation and apostrophes are normalised, so `smith's` and `smiths` match
   sensibly
 - simple singular/plural variants are treated as equivalent in token matching
 - `exclude_keywords` uses the same logic and is applied before final inclusion
+- `price_range` and `size_range` accept numeric-only input plus range/comparison
+  operators; do not include `$`, `ml`, `g`, or other units in the watchlist
+- price comparison strips a leading `$` from product data before comparing
+- size comparison strips trailing units such as `ml`, `g`, or `kg` from product
+  data before comparing
+- size filters compare only the extracted numeric value; there is no unit
+  conversion between values such as `900g` and `0.9kg`
 - if `email_index` / `email_indices` is omitted, that watchlist item is
   included in every recipient's email
 - if `to_emails` is not configured, the checker falls back to `to_email`
@@ -277,6 +298,8 @@ items:
 Examples:
 
 - `match_keywords: ["tim tam"]` matches `Arnott's Tim Tam Choc Mint Biscuits`
+- `match_keywords: ["tim tam"]` with `include_keywords: ["tim tam", "tim tams"]`
+  keeps the API query simple while allowing a broader final inclusion rule
 - `match_keywords: ["smith chips"]` can still match `Smith's Crinkle Cut Potato Chips`
 - `match_keywords: ["165g"]` can match a product through its size field
 - `match_keywords: ["tim tam 165g"]` can match using both title and size
@@ -285,6 +308,10 @@ Examples:
   either exclusion term
 - `exclude_keywords: ["6 pack"]` removes multipacks if that text appears in the
   title, brand, or size
+- `price_range: "<1.50"` matches offers priced below `$1.50`
+- `price_range: "2-4"` matches offers priced from `$2.00` to `$4.00`
+- `size_range: "800-1000"` matches sizes like `900ml`
+- `size_range: "900"` matches sizes like `900ml`
 
 You can also add API usage limits at the top level of `watchlist.yaml`, though
 `config/limits.yaml` is cleaner:
@@ -322,18 +349,24 @@ Expected columns:
 
 - `name`
 - `match_keywords`
+- `include_keywords` (optional)
 - `exclude_keywords` (optional)
 - `stores` (optional)
   `none` is also allowed here if you want to pause an item from Excel.
 - `email_indices` (optional)
+- `price_range` (optional)
+- `size_range` (optional)
 - `include_unknown_half_price` (optional)
 - `only_half_price` (optional)
 
 If the optional columns are missing during import, these defaults are used:
 
 - `exclude_keywords: []`
+- `include_keywords`: falls back to `match_keywords`
 - `stores: ["Coles", "Woolworths"]`
 - `email_indices`: omitted
+- `price_range`: omitted
+- `size_range`: omitted
 - `include_unknown_half_price: true`
 - `only_half_price: false`
 
@@ -378,6 +411,9 @@ python src/specials_checker.py --test-woolies "tim tam"
 
 # Run the full checker without sending email
 python src/specials_checker.py --testing
+
+# Run against a different watchlist file for testing
+python src/specials_checker.py --testing --watchlist test_watchlist.yaml
 
 # Send a sample email without calling the product APIs
 python src/specials_checker.py --test-email

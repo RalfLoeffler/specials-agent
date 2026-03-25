@@ -7,9 +7,12 @@ Usage:
 Expected columns (case-insensitive):
 - name
 - match_keywords (comma-separated)
+- include_keywords (optional; comma-separated final inclusion filter)
 - exclude_keywords (optional; comma-separated)
 - stores (optional; comma-separated; blank means both stores; `none` pauses item)
 - email_indices (optional; comma-separated zero-based recipient indices)
+- price_range (optional; e.g. 1-1.5 or <1.50)
+- size_range (optional; e.g. 800-1000 or 900)
 - include_unknown_half_price (optional; TRUE/FALSE/Yes/No/1/0)
 - only_half_price (optional; TRUE/FALSE/Yes/No/1/0)
 
@@ -48,6 +51,14 @@ def _cell_value(
     """Return a row value for an optional column, or None when absent."""
     idx = header_map.get(key)
     return row[idx] if idx is not None and idx < len(row) else None
+
+
+def _optional_text(cell_value: object) -> str | None:
+    """Return a trimmed optional text value from a cell."""
+    if cell_value is None:
+        return None
+    text = str(cell_value).strip()
+    return text or None
 
 
 def _split_keywords(cell_value: object) -> List[str]:
@@ -137,9 +148,12 @@ def import_watchlist_from_excel(
             continue
 
         keywords_cell = row[header_map["match_keywords"]]
+        include_keywords_cell = _cell_value(row, header_map, "include_keywords")
         exclude_keywords_cell = _cell_value(row, header_map, "exclude_keywords")
         stores_cell = _cell_value(row, header_map, "stores")
         email_indices_cell = _cell_value(row, header_map, "email_indices")
+        price_range_cell = _cell_value(row, header_map, "price_range")
+        size_range_cell = _cell_value(row, header_map, "size_range")
         include_unknown_half_price_cell = _cell_value(
             row,
             header_map,
@@ -163,9 +177,18 @@ def import_watchlist_from_excel(
                 else _bool_from_cell(only_half_cell)
             ),
         }
+        include_keywords = _split_keywords(include_keywords_cell)
+        if include_keywords:
+            item["include_keywords"] = include_keywords
         email_indices = _split_email_indices(email_indices_cell)
         if email_indices:
             item["email_indices"] = email_indices
+        price_range = _optional_text(price_range_cell)
+        if price_range is not None:
+            item["price_range"] = price_range
+        size_range = _optional_text(size_range_cell)
+        if size_range is not None:
+            item["size_range"] = size_range
 
         items.append(item)
 
