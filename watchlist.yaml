@@ -1,15 +1,98 @@
 items:
-  - name: "Tim Tam"
-    match_keywords: ["tim tam"]
+  - name: Tim Tam
+    match_keywords:
+      - tim tam
     exclude_keywords: []
-    stores: ["Coles", "Woolworths"]
+    stores: []
     include_unknown_half_price: true
     only_half_price: false
-  - name: "Glow Lab"
-    match_keywords: ["glow lab"]
-  - name: "Smith's Chips"
-    match_keywords: ["smith chips", "smith's chips"]
-    exclude_keywords: ["lunchbox"]
-    stores: ["Coles", "Woolworths"]
+  - name: Kettle
+    match_keywords:
+      - Kettle Chips
+    exclude_keywords: []
+    stores: []
+    include_unknown_half_price: true
+    only_half_price: false
+  - name: Glow Lab
+    match_keywords:
+      - glow lab
+    exclude_keywords: []
+    stores: []
+    include_unknown_half_price: true
+    only_half_price: false
+    size_range: 800-1000
+  - name: red rock
+    match_keywords:
+      - red rock
+    exclude_keywords:
+      - lunchbox
+      - cracker
+    stores: []
+    include_unknown_half_price: true
+    only_half_price: false
+    include_keywords:
+      - chips
+  - name: old gold
+    match_keywords:
+      - old gold cadbury
+    exclude_keywords: []
+    stores: []
+    include_unknown_half_price: true
+    only_half_price: false
+    include_keywords:
+      - block
+  - name: My Dog
+    match_keywords:
+      - my dog
+    exclude_keywords: []
+    stores: []
+    include_unknown_half_price: true
+    only_half_price: false
+    include_keywords:
+      - adult
+    size_range: 350-450
+  - name: Pedigree
+    match_keywords:
+      - pedigree
+    exclude_keywords: []
+    stores: []
+    include_unknown_half_price: true
+    only_half_price: false
+    include_keywords:
+      - wet
+  - name: Pics
+    match_keywords:
+      - Pics peanut
+    exclude_keywords: []
+    stores: []
+    include_unknown_half_price: true
+    only_half_price: false
+    size_range: 350-1200
+  - name: Mayvers
+    match_keywords:
+      - Mayvers peanut
+    exclude_keywords: []
+    stores: []
+    include_unknown_half_price: true
+    only_half_price: false
+    size_range: 300-1200
+  - name: natures gift
+    match_keywords:
+      - natures gift
+    exclude_keywords: []
+    stores: []
+    include_unknown_half_price: true
+    only_half_price: false
+    include_keywords:
+      - wet
+  - name: bickfords
+    match_keywords:
+      - bickfords cordial
+    exclude_keywords: []
+    include_keywords:
+      - Lemon
+      - Ginger
+      - Blackcurrrant
+    stores: []
     include_unknown_half_price: true
     only_half_price: false
