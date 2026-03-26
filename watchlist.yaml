@@ -3,6 +3,9 @@ items:
     match_keywords:
       - tim tam
     exclude_keywords: []
+    include_keywords:
+      - Original 
+      - Deluxe 
     stores: []
     include_unknown_half_price: true
     only_half_price: false
@@ -13,6 +16,7 @@ items:
     stores: []
     include_unknown_half_price: true
     only_half_price: false
+    size_range: 140-800
   - name: Glow Lab
     match_keywords:
       - glow lab
@@ -35,6 +39,8 @@ items:
   - name: old gold
     match_keywords:
       - old gold cadbury
+    include_keywords:
+      - Original
     exclude_keywords: []
     stores: []
     include_unknown_half_price: true
@@ -60,22 +66,6 @@ items:
     only_half_price: false
     include_keywords:
       - wet
-  - name: Pics
-    match_keywords:
-      - Pics peanut
-    exclude_keywords: []
-    stores: []
-    include_unknown_half_price: true
-    only_half_price: false
-    size_range: 350-1200
-  - name: Mayvers
-    match_keywords:
-      - Mayvers peanut
-    exclude_keywords: []
-    stores: []
-    include_unknown_half_price: true
-    only_half_price: false
-    size_range: 300-1200
   - name: natures gift
     match_keywords:
       - natures gift
@@ -96,3 +86,19 @@ items:
     stores: []
     include_unknown_half_price: true
     only_half_price: false
+  - name: Pics
+    match_keywords:
+      - Pics peanut
+    exclude_keywords: []
+    stores: []
+    include_unknown_half_price: true
+    only_half_price: false
+    size_range: 350-1200
+  - name: Mayvers
+    match_keywords:
+      - Mayvers peanut
+    exclude_keywords: []
+    stores: []
+    include_unknown_half_price: true
+    only_half_price: false
+    size_range: 300-1200
