@@ -354,7 +354,9 @@ def load_watchlist(path: str = "watchlist.yaml") -> List[WatchItem]:
             WatchItem(
                 name=raw["name"],
                 match_keywords=list(raw["match_keywords"]),
-                include_keywords=list(raw.get("include_keywords", raw["match_keywords"])),
+                include_keywords=list(
+                    raw.get("include_keywords", raw["match_keywords"])
+                ),
                 exclude_keywords=list(raw.get("exclude_keywords", [])),
                 stores=_normalise_watch_stores(raw.get("stores")),
                 include_unknown_half_price=bool(
@@ -1325,7 +1327,7 @@ def build_html_report(
 ) -> str:
     """Render the report as HTML tables for email clients."""
     parts: List[str] = [
-        "<html><body style=\"font-family: Arial, sans-serif; color: #222;\">"
+        '<html><body style="font-family: Arial, sans-serif; color: #222;">'
     ]
 
     if limit_warnings:
@@ -1354,14 +1356,14 @@ def build_html_report(
             headers.extend(["Was Price", "Barcode"])
 
         parts.append(
-            "<table style=\"border-collapse: collapse; width: 100%; "
-            "margin-bottom: 16px;\">"
+            '<table style="border-collapse: collapse; width: 100%; '
+            'margin-bottom: 16px;">'
         )
         parts.append("<thead><tr>")
         for header in headers:
             parts.append(
-                "<th style=\"border: 1px solid #ccc; background: #f5f5f5; "
-                "padding: 8px; text-align: left;\">"
+                '<th style="border: 1px solid #ccc; background: #f5f5f5; '
+                'padding: 8px; text-align: left;">'
                 f"{html.escape(header)}</th>"
             )
         parts.append("</tr></thead><tbody>")
@@ -1372,7 +1374,7 @@ def build_html_report(
                 price_text += " (half price)"
 
             link_html = (
-                f"<a href=\"{html.escape(offer.url, quote=True)}\">Open</a>"
+                f'<a href="{html.escape(offer.url, quote=True)}">Open</a>'
                 if offer.url
                 else ""
             )
@@ -1398,8 +1400,8 @@ def build_html_report(
             parts.append("<tr>")
             for cell in cells:
                 parts.append(
-                    "<td style=\"border: 1px solid #ccc; padding: 8px; "
-                    "vertical-align: top;\">"
+                    '<td style="border: 1px solid #ccc; padding: 8px; '
+                    'vertical-align: top;">'
                     f"{cell}</td>"
                 )
             parts.append("</tr>")
@@ -1548,42 +1550,42 @@ def build_email_test_report() -> str:
 def build_email_test_html_report() -> str:
     """Return a small sample HTML table report for email testing."""
     return (
-        "<html><body style=\"font-family: Arial, sans-serif; color: #222;\">"
+        '<html><body style="font-family: Arial, sans-serif; color: #222;">'
         "<h2>Email Test</h2>"
         "<p>This is a sample specials report used to verify email delivery.</p>"
         "<h2>Sample Item</h2>"
-        "<table style=\"border-collapse: collapse; width: 100%;\">"
+        '<table style="border-collapse: collapse; width: 100%;">'
         "<thead><tr>"
-        "<th style=\"border: 1px solid #ccc; background: #f5f5f5; padding: 8px; "
-        "text-align: left;\">Store</th>"
-        "<th style=\"border: 1px solid #ccc; background: #f5f5f5; padding: 8px; "
-        "text-align: left;\">Product</th>"
-        "<th style=\"border: 1px solid #ccc; background: #f5f5f5; padding: 8px; "
-        "text-align: left;\">Brand</th>"
-        "<th style=\"border: 1px solid #ccc; background: #f5f5f5; padding: 8px; "
-        "text-align: left;\">Price</th>"
-        "<th style=\"border: 1px solid #ccc; background: #f5f5f5; padding: 8px; "
-        "text-align: left;\">Size</th>"
-        "<th style=\"border: 1px solid #ccc; background: #f5f5f5; padding: 8px; "
-        "text-align: left;\">Link</th>"
+        '<th style="border: 1px solid #ccc; background: #f5f5f5; padding: 8px; '
+        'text-align: left;">Store</th>'
+        '<th style="border: 1px solid #ccc; background: #f5f5f5; padding: 8px; '
+        'text-align: left;">Product</th>'
+        '<th style="border: 1px solid #ccc; background: #f5f5f5; padding: 8px; '
+        'text-align: left;">Brand</th>'
+        '<th style="border: 1px solid #ccc; background: #f5f5f5; padding: 8px; '
+        'text-align: left;">Price</th>'
+        '<th style="border: 1px solid #ccc; background: #f5f5f5; padding: 8px; '
+        'text-align: left;">Size</th>'
+        '<th style="border: 1px solid #ccc; background: #f5f5f5; padding: 8px; '
+        'text-align: left;">Link</th>'
         "</tr></thead><tbody>"
         "<tr>"
-        "<td style=\"border: 1px solid #ccc; padding: 8px;\">Coles</td>"
-        "<td style=\"border: 1px solid #ccc; padding: 8px;\">Example Product</td>"
-        "<td style=\"border: 1px solid #ccc; padding: 8px;\">Example Brand</td>"
-        "<td style=\"border: 1px solid #ccc; padding: 8px;\">$4.50</td>"
-        "<td style=\"border: 1px solid #ccc; padding: 8px;\">165g</td>"
-        "<td style=\"border: 1px solid #ccc; padding: 8px;\">"
-        "<a href=\"https://example.com/coles\">Open</a></td>"
+        '<td style="border: 1px solid #ccc; padding: 8px;">Coles</td>'
+        '<td style="border: 1px solid #ccc; padding: 8px;">Example Product</td>'
+        '<td style="border: 1px solid #ccc; padding: 8px;">Example Brand</td>'
+        '<td style="border: 1px solid #ccc; padding: 8px;">$4.50</td>'
+        '<td style="border: 1px solid #ccc; padding: 8px;">165g</td>'
+        '<td style="border: 1px solid #ccc; padding: 8px;">'
+        '<a href="https://example.com/coles">Open</a></td>'
         "</tr>"
         "<tr>"
-        "<td style=\"border: 1px solid #ccc; padding: 8px;\">Woolworths</td>"
-        "<td style=\"border: 1px solid #ccc; padding: 8px;\">Example Product</td>"
-        "<td style=\"border: 1px solid #ccc; padding: 8px;\">Example Brand</td>"
-        "<td style=\"border: 1px solid #ccc; padding: 8px;\">$4.80</td>"
-        "<td style=\"border: 1px solid #ccc; padding: 8px;\">180g</td>"
-        "<td style=\"border: 1px solid #ccc; padding: 8px;\">"
-        "<a href=\"https://example.com/woolworths\">Open</a></td>"
+        '<td style="border: 1px solid #ccc; padding: 8px;">Woolworths</td>'
+        '<td style="border: 1px solid #ccc; padding: 8px;">Example Product</td>'
+        '<td style="border: 1px solid #ccc; padding: 8px;">Example Brand</td>'
+        '<td style="border: 1px solid #ccc; padding: 8px;">$4.80</td>'
+        '<td style="border: 1px solid #ccc; padding: 8px;">180g</td>'
+        '<td style="border: 1px solid #ccc; padding: 8px;">'
+        '<a href="https://example.com/woolworths">Open</a></td>'
         "</tr>"
         "</tbody></table>"
         "<p>If you received this email, the email configuration is working.</p>"

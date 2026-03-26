@@ -172,9 +172,7 @@ def import_watchlist_from_excel(
                 else _bool_from_cell(include_unknown_half_price_cell)
             ),
             "only_half_price": (
-                False
-                if only_half_cell is None
-                else _bool_from_cell(only_half_cell)
+                False if only_half_cell is None else _bool_from_cell(only_half_cell)
             ),
         }
         include_keywords = _split_keywords(include_keywords_cell)
