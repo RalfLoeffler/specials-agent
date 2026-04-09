@@ -1,22 +1,4 @@
 items:
-  - name: Tim Tam
-    match_keywords:
-      - tim tam
-    exclude_keywords: []
-    include_keywords:
-      - Original 
-      - Deluxe 
-    stores: []
-    include_unknown_half_price: true
-    only_half_price: false
-  - name: Kettle
-    match_keywords:
-      - Kettle Chips
-    exclude_keywords: []
-    stores: []
-    include_unknown_half_price: true
-    only_half_price: false
-    size_range: 140-800
   - name: Glow Lab
     match_keywords:
       - glow lab
@@ -25,17 +7,6 @@ items:
     include_unknown_half_price: true
     only_half_price: false
     size_range: 800-1000
-  - name: red rock
-    match_keywords:
-      - red rock
-    exclude_keywords:
-      - lunchbox
-      - cracker
-    stores: []
-    include_unknown_half_price: true
-    only_half_price: false
-    include_keywords:
-      - chips
   - name: old gold
     match_keywords:
       - old gold cadbury
@@ -45,6 +16,7 @@ items:
     stores: []
     include_unknown_half_price: true
     only_half_price: false
+    email_index: 0
     include_keywords:
       - block
   - name: My Dog
@@ -102,3 +74,42 @@ items:
     include_unknown_half_price: true
     only_half_price: false
     size_range: 300-1200
+  - name: Tim Tam
+    match_keywords:
+      - tim tam
+    exclude_keywords: []
+    include_keywords:
+      - Original 
+      - Deluxe 
+    stores: []
+    include_unknown_half_price: true
+    only_half_price: false
+    email_index: 0
+  - name: Kettle
+    match_keywords:
+      - Kettle Chips
+    exclude_keywords: []
+    stores: []
+    include_unknown_half_price: true
+    only_half_price: false
+    size_range: 140-800
+  - name: red rock
+    match_keywords:
+      - red rock
+    exclude_keywords:
+      - lunchbox
+      - cracker
+    stores: []
+    include_unknown_half_price: true
+    only_half_price: false
+    include_keywords:
+      - chips
+  - name: Uncle Tobys
+    match_keywords:
+      - uncle tobys
+    exclude_keywords: []
+    stores: []
+    include_unknown_half_price: true
+    only_half_price: false
+    include_keywords:
+      - iron

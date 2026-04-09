@@ -1461,6 +1461,146 @@ def append_api_calls_footer_html(
     return html_report + footer_html
 
 
+def resolve_email_subject(cfg: Dict[str, Any], subject: str) -> str:
+    """Resolve the effective email subject with config fallback."""
+    email_subject = str(subject).strip() or "Weekly grocery specials report"
+    if email_subject == "Weekly grocery specials report":
+        email_subject = (
+            str(cfg.get("email_subject", email_subject)).strip() or email_subject
+        )
+    return email_subject
+
+
+def build_email_deliveries(
+    watchlist: List[WatchItem],
+    all_offers: Dict[str, List[Offer]],
+    email_cfg: Dict[str, Any],
+    subject: str = "Weekly grocery specials report",
+) -> List[Dict[str, Any]]:
+    """Build per-recipient email payloads using the configured routing rules."""
+    recipients = get_email_recipients(email_cfg)
+    deliveries: List[Dict[str, Any]] = []
+
+    if recipients:
+        for recipient_index, recipient in enumerate(recipients):
+            recipient_offers = select_offers_for_email_recipient(
+                watchlist,
+                all_offers,
+                recipient_index,
+            )
+            if not recipient_offers:
+                continue
+
+            report_verbose = get_email_bool_option(
+                email_cfg,
+                "report_verbose",
+                recipient_index,
+                default=False,
+            )
+            api_calls_footer = (
+                build_api_calls_footer()
+                if get_email_bool_option(
+                    email_cfg,
+                    "report_calls",
+                    recipient_index,
+                    default=False,
+                )
+                else None
+            )
+            deliveries.append(
+                {
+                    "recipient_index": recipient_index,
+                    "recipient": recipient,
+                    "subject": resolve_email_subject(email_cfg, subject),
+                    "verbose": report_verbose,
+                    "report_calls": bool(api_calls_footer),
+                    "watch_names": list(recipient_offers.keys()),
+                    "report": build_report(
+                        recipient_offers,
+                        limit_warnings=LIMIT_WARNINGS,
+                        verbose=report_verbose,
+                        api_calls_footer=api_calls_footer,
+                    ),
+                    "html_report": build_html_report(
+                        recipient_offers,
+                        limit_warnings=LIMIT_WARNINGS,
+                        verbose=report_verbose,
+                        api_calls_footer=api_calls_footer,
+                    ),
+                }
+            )
+        return deliveries
+
+    default_api_calls_footer = (
+        build_api_calls_footer()
+        if get_email_bool_option(email_cfg, "report_calls", 0, default=False)
+        else None
+    )
+    default_report_verbose = get_email_bool_option(
+        email_cfg,
+        "report_verbose",
+        0,
+        default=False,
+    )
+    fallback_recipient = (
+        str(email_cfg.get("to_email", email_cfg.get("gmail_user", ""))).strip()
+        or "(no recipient configured)"
+    )
+    deliveries.append(
+        {
+            "recipient_index": 0,
+            "recipient": fallback_recipient,
+            "subject": resolve_email_subject(email_cfg, subject),
+            "verbose": default_report_verbose,
+            "report_calls": bool(default_api_calls_footer),
+            "watch_names": list(all_offers.keys()),
+            "report": build_report(
+                all_offers,
+                limit_warnings=LIMIT_WARNINGS,
+                verbose=default_report_verbose,
+                api_calls_footer=default_api_calls_footer,
+            ),
+            "html_report": build_html_report(
+                all_offers,
+                limit_warnings=LIMIT_WARNINGS,
+                verbose=default_report_verbose,
+                api_calls_footer=default_api_calls_footer,
+            ),
+        }
+    )
+    return deliveries
+
+
+def print_email_delivery_preview(deliveries: List[Dict[str, Any]]) -> None:
+    """Print a dry-run preview of each email that would be sent."""
+    if not deliveries:
+        print("[INFO] No email deliveries were generated for preview.")
+        return
+
+    print("[INFO] Email delivery preview:")
+    for delivery in deliveries:
+        print("")
+        print(
+            "[INFO] ------------------------------------------------------------"
+        )
+        print(
+            f"[INFO] Recipient #{delivery['recipient_index']}: "
+            f"{delivery['recipient']}"
+        )
+        print(f"[INFO] Subject: {delivery['subject']}")
+        print(
+            "[INFO] Options: "
+            f"verbose={delivery['verbose']}, "
+            f"report_calls={delivery['report_calls']}"
+        )
+        print(
+            "[INFO] Watchlist items included: "
+            + ", ".join(delivery["watch_names"])
+        )
+        print("[INFO] Plain-text body preview:")
+        print(delivery["report"])
+
+
 # =========================
 # EMAIL SENDER (GMAIL)
 # =========================
@@ -1502,11 +1642,7 @@ def send_email_report(
     smtp_host = str(cfg.get("smtp_host", "smtp.gmail.com")).strip()
     smtp_port = int(cfg.get("smtp_port", 587))
     smtp_use_tls = _coerce_bool(cfg.get("smtp_use_tls"), default=True)
-    email_subject = str(subject).strip() or "Weekly grocery specials report"
-    if email_subject == "Weekly grocery specials report":
-        email_subject = (
-            str(cfg.get("email_subject", email_subject)).strip() or email_subject
-        )
+    email_subject = resolve_email_subject(cfg, subject)
 
     msg = EmailMessage()
     msg["Subject"] = email_subject
@@ -1690,33 +1826,14 @@ def main(
     _, email_cfg = load_email_config()
     recipients = get_email_recipients(email_cfg)
     validate_watchlist_email_indices(watchlist, recipients)
-    default_api_calls_footer = (
-        build_api_calls_footer()
-        if get_email_bool_option(email_cfg, "report_calls", 0, default=False)
-        else None
-    )
-    default_report_verbose = get_email_bool_option(
-        email_cfg,
-        "report_verbose",
-        0,
-        default=False,
-    )
-    report = build_report(
-        all_offers,
-        limit_warnings=LIMIT_WARNINGS,
-        verbose=default_report_verbose,
-        api_calls_footer=default_api_calls_footer,
-    )
-    html_report = build_html_report(
-        all_offers,
-        limit_warnings=LIMIT_WARNINGS,
-        verbose=default_report_verbose,
-        api_calls_footer=default_api_calls_footer,
-    )
+    deliveries = build_email_deliveries(watchlist, all_offers, email_cfg)
+    report = deliveries[0]["report"] if deliveries else ""
+    html_report = deliveries[0]["html_report"] if deliveries else None
     print(report)
 
     if testing_mode:
         print("[INFO] Testing mode: email send skipped.")
+        print_email_delivery_preview(deliveries)
         print(
             "[INFO] API calls this run - Coles: "
             f"{RUN_API_CALL_COUNT.get('Coles', 0)}, "
@@ -1735,48 +1852,13 @@ def main(
                 print(f"  - {msg}")
 
     if send_email and not testing_mode and report.strip():
-        if recipients:
-            for recipient_index, recipient in enumerate(recipients):
-                recipient_offers = select_offers_for_email_recipient(
-                    watchlist,
-                    all_offers,
-                    recipient_index,
-                )
-                if not recipient_offers:
-                    continue
-                report_verbose = get_email_bool_option(
-                    email_cfg,
-                    "report_verbose",
-                    recipient_index,
-                    default=False,
-                )
-                api_calls_footer = (
-                    build_api_calls_footer()
-                    if get_email_bool_option(
-                        email_cfg,
-                        "report_calls",
-                        recipient_index,
-                        default=False,
-                    )
-                    else None
-                )
-                send_email_report(
-                    build_report(
-                        recipient_offers,
-                        limit_warnings=LIMIT_WARNINGS,
-                        verbose=report_verbose,
-                        api_calls_footer=api_calls_footer,
-                    ),
-                    html_report=build_html_report(
-                        recipient_offers,
-                        limit_warnings=LIMIT_WARNINGS,
-                        verbose=report_verbose,
-                        api_calls_footer=api_calls_footer,
-                    ),
-                    to_email=recipient,
-                )
-        else:
-            send_email_report(report, html_report=html_report)
+        for delivery in deliveries:
+            send_email_report(
+                delivery["report"],
+                subject=delivery["subject"],
+                html_report=delivery["html_report"],
+                to_email=delivery["recipient"],
+            )
 
 
 if __name__ == "__main__":
@@ -1801,7 +1883,10 @@ if __name__ == "__main__":
     parser.add_argument(
         "--testing",
         action="store_true",
-        help="Run the checker in testing mode (prints results, no email)",
+        help=(
+            "Run the checker in testing mode "
+            "(prints results and per-recipient email previews, no email)"
+        ),
     )
     parser.add_argument(
         "--test-email",

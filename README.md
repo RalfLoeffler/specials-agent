@@ -169,6 +169,9 @@ Notes:
 - `report_verbose: true` adds extra columns such as previous price and barcode
 - `report_calls: true` appends the accumulated monthly API call counts to the
   bottom of the email
+- `--testing` now prints a dry-run preview of each email, including which
+  recipient would receive which routed watchlist items, without sending
+  anything
 - `to_email` keeps the original single-recipient behaviour
 - `to_emails` is an optional ordered recipient list; when present, watchlist
   entries can route matches by zero-based index
@@ -415,7 +418,7 @@ python src/specials_checker.py --test-coles "tim tam"
 # Inspect live Woolworths API response structure
 python src/specials_checker.py --test-woolies "tim tam"
 
-# Run the full checker without sending email
+# Run the full checker without sending email and preview each recipient email
 python src/specials_checker.py --testing
 
 # Run against a different watchlist file for testing
@@ -543,6 +546,8 @@ tail -n 50 /home/openhabian/specials-agent/cron.log
 - The counter rotates automatically at the start of each month.
 - In `--testing` mode the script prints both the API calls used in the current
   run and the persisted monthly total.
+- In `--testing` mode the script also prints a per-recipient dry-run email
+  preview so you can verify routing before enabling live sends.
 - `config/limits.yaml` can define warning and hard limits per store.
 - Product search pagination is capped to the first 2 pages per keyword/store to
   reduce API usage while still covering the most relevant matches.
