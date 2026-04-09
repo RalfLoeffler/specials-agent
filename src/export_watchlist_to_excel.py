@@ -62,7 +62,10 @@ def _optional_csv_field(item: dict, key: str) -> str | None:
     """Return a CSV-style field only when the source key is explicitly present."""
     if key not in item:
         return None
-    return _join_keywords(item.get(key))
+    value = item.get(key)
+    if isinstance(value, list) and not value:
+        return "[]"
+    return _join_keywords(value)
 
 
 def _optional_bool_field(item: dict, key: str) -> bool | None:
@@ -80,6 +83,15 @@ def _optional_text_field(item: dict, key: str) -> str | None:
     if value in (None, ""):
         return None
     return str(value).strip() or None
+
+
+def _optional_email_indices_field(item: dict) -> str | None:
+    """Return normalized email indices from either YAML key shape."""
+    if "email_indices" in item:
+        return _join_keywords(item.get("email_indices"))
+    if "email_index" in item:
+        return _join_keywords(item.get("email_index"))
+    return None
 
 
 def export_watchlist_to_excel(
@@ -114,7 +126,7 @@ def export_watchlist_to_excel(
         include_keywords_str = _optional_csv_field(item, "include_keywords")
         exclude_keywords_str = _optional_csv_field(item, "exclude_keywords")
         stores_str = _optional_csv_field(item, "stores")
-        email_indices_str = _optional_csv_field(item, "email_indices")
+        email_indices_str = _optional_email_indices_field(item)
         price_range = _optional_text_field(item, "price_range")
         size_range = _optional_text_field(item, "size_range")
         include_unknown_half_price = _optional_bool_field(

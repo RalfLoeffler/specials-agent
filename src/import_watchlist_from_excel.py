@@ -10,7 +10,7 @@ Expected columns (case-insensitive):
 - include_keywords (optional; comma-separated final inclusion filter)
 - exclude_keywords (optional; comma-separated)
 - stores (optional; comma-separated; blank means both stores; `none` pauses item)
-- email_indices (optional; comma-separated zero-based recipient indices)
+- email_indices / email_index (optional; comma-separated zero-based recipient indices)
 - price_range (optional; e.g. 1-1.5 or <1.50)
 - size_range (optional; e.g. 800-1000 or 900)
 - include_unknown_half_price (optional; TRUE/FALSE/Yes/No/1/0)
@@ -53,12 +53,30 @@ def _cell_value(
     return row[idx] if idx is not None and idx < len(row) else None
 
 
+def _cell_value_any(
+    row: tuple[object, ...],
+    header_map: Dict[str, int],
+    *keys: str,
+) -> object:
+    """Return the first populated optional column value from a list of names."""
+    for key in keys:
+        value = _cell_value(row, header_map, key)
+        if value is not None and str(value).strip() != "":
+            return value
+    return None
+
+
 def _optional_text(cell_value: object) -> str | None:
     """Return a trimmed optional text value from a cell."""
     if cell_value is None:
         return None
     text = str(cell_value).strip()
     return text or None
+
+
+def _is_explicit_empty_list_cell(cell_value: object) -> bool:
+    """Return True when a worksheet cell encodes an explicit empty list."""
+    return str(cell_value).strip() == "[]"
 
 
 def _split_keywords(cell_value: object) -> List[str]:
@@ -69,6 +87,8 @@ def _split_keywords(cell_value: object) -> List[str]:
         return [str(x).strip() for x in cell_value if str(x).strip()]
     text = str(cell_value).strip()
     if not text:
+        return []
+    if text == "[]":
         return []
 
     reader = csv.reader(StringIO(text), skipinitialspace=True)
@@ -151,7 +171,12 @@ def import_watchlist_from_excel(
         include_keywords_cell = _cell_value(row, header_map, "include_keywords")
         exclude_keywords_cell = _cell_value(row, header_map, "exclude_keywords")
         stores_cell = _cell_value(row, header_map, "stores")
-        email_indices_cell = _cell_value(row, header_map, "email_indices")
+        email_indices_cell = _cell_value_any(
+            row,
+            header_map,
+            "email_indices",
+            "email_index",
+        )
         price_range_cell = _cell_value(row, header_map, "price_range")
         size_range_cell = _cell_value(row, header_map, "size_range")
         include_unknown_half_price_cell = _cell_value(
@@ -164,23 +189,28 @@ def import_watchlist_from_excel(
         item: Dict[str, object] = {
             "name": str(name).strip(),
             "match_keywords": _split_keywords(keywords_cell),
-            "exclude_keywords": _split_keywords(exclude_keywords_cell),
-            "stores": _split_keywords(stores_cell),
-            "include_unknown_half_price": (
-                True
-                if include_unknown_half_price_cell is None
-                else _bool_from_cell(include_unknown_half_price_cell)
-            ),
-            "only_half_price": (
-                False if only_half_cell is None else _bool_from_cell(only_half_cell)
-            ),
         }
         include_keywords = _split_keywords(include_keywords_cell)
-        if include_keywords:
+        if include_keywords or _is_explicit_empty_list_cell(include_keywords_cell):
             item["include_keywords"] = include_keywords
+        exclude_keywords = _split_keywords(exclude_keywords_cell)
+        if exclude_keywords or _is_explicit_empty_list_cell(exclude_keywords_cell):
+            item["exclude_keywords"] = exclude_keywords
+        stores = _split_keywords(stores_cell)
+        if stores or _is_explicit_empty_list_cell(stores_cell):
+            item["stores"] = stores
+        if include_unknown_half_price_cell not in (None, ""):
+            item["include_unknown_half_price"] = _bool_from_cell(
+                include_unknown_half_price_cell
+            )
+        if only_half_cell not in (None, ""):
+            item["only_half_price"] = _bool_from_cell(only_half_cell)
         email_indices = _split_email_indices(email_indices_cell)
         if email_indices:
-            item["email_indices"] = email_indices
+            if len(email_indices) == 1:
+                item["email_index"] = email_indices[0]
+            else:
+                item["email_indices"] = email_indices
         price_range = _optional_text(price_range_cell)
         if price_range is not None:
             item["price_range"] = price_range
