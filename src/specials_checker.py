@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from email.message import EmailMessage
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import urlsplit, urlunsplit
 
 import requests
 import yaml
@@ -562,6 +563,35 @@ def _build_vendor_offers_view(
 
 def _vendor_offer_signature(vendor_offers: Dict[str, List[Offer]]) -> str:
     """Build a stable checksum used to detect specials changes per vendor."""
+
+    def _normalise_url_for_signature(value: Optional[str]) -> str:
+        """Normalize URLs so tracking query strings do not affect checksums."""
+        raw = (value or "").strip()
+        if not raw:
+            return ""
+
+        try:
+            parsed = urlsplit(raw)
+        except Exception:
+            return raw
+
+        if not parsed.scheme and not parsed.netloc:
+            return raw
+
+        path = parsed.path or ""
+        if path != "/":
+            path = path.rstrip("/")
+
+        return urlunsplit(
+            (
+                parsed.scheme.lower(),
+                parsed.netloc.lower(),
+                path,
+                "",
+                "",
+            )
+        )
+
     payload: List[Dict[str, Any]] = []
     for watch_name in sorted(vendor_offers.keys()):
         offers = vendor_offers[watch_name]
@@ -574,7 +604,7 @@ def _vendor_offer_signature(vendor_offers: Dict[str, List[Offer]]) -> str:
                 item.brand or "",
                 item.size or "",
                 round(item.price, 2),
-                item.url or "",
+                _normalise_url_for_signature(item.url),
                 item.barcode or "",
                 round(item.was_price, 2) if item.was_price is not None else -1,
             ),
@@ -586,7 +616,7 @@ def _vendor_offer_signature(vendor_offers: Dict[str, List[Offer]]) -> str:
                     "brand": offer.brand,
                     "price": round(offer.price, 2),
                     "size": offer.size,
-                    "url": offer.url,
+                    "url": _normalise_url_for_signature(offer.url),
                     "barcode": offer.barcode,
                     "was_price": (
                         round(offer.was_price, 2)

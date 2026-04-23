@@ -570,6 +570,17 @@ Freshness behaviour:
   "no new data" and fallback preamble text.
 - this can produce separate emails on different days when one vendor updates
   before the other.
+- when both vendors are due in the same run, the script sends one combined
+  email per recipient and resolves subject/preamble using a mixed-state mode
+  when vendor statuses differ (for example one vendor changed while the other
+  is a force-send fallback).
+
+Mixed subject/preamble placeholders:
+
+- `{vendor}` or `{vendors}` renders a readable vendor list such as
+  `Coles and Woolworths`.
+- `{vendor_summary}` renders per-vendor status such as
+  `Coles: new_data; Woolworths: forced_send`.
 
 Example `config/limits.yaml`:
 
@@ -603,12 +614,15 @@ vendors:
 
 email:
   # Leave blank to keep email_subject from email_config.yaml.
+  # Placeholders: {vendor}, {vendors}, {vendor_summary}
   success_subject: ""
   success_preamble: ""
   no_new_data_subject: "No new specials data for {vendor}"
   no_new_data_preamble: "No new API specials data was detected for {vendor} yet."
   forced_send_subject: "Saturday fallback specials for {vendor}"
   forced_send_preamble: "Fallback day reached for {vendor}; sending anyway."
+  mixed_subject: "Specials update ({vendor_summary})"
+  mixed_preamble: "This run contains mixed vendor freshness states: {vendor_summary}."
 ```
 
 ---
