@@ -38,6 +38,8 @@ From either API's code snippets panel, copy your `X-RapidAPI-Key`.
   Template for SMTP credentials and one or more target addresses.
 - `config/limits.yaml.example`
   Template for monthly API warning and hard limits.
+- `config/specials_freshness.yaml.example`
+  Template for weekly freshness windows and vendor status email text.
 - `config/secrets.example.yaml`
   Template for the RapidAPI key file.
 - `scripts/build_excel_tools.ps1`
@@ -481,6 +483,7 @@ Create the runtime config files:
 ```bash
 cp config/email_config.yaml.example email_config.yaml
 cp config/limits.yaml.example config/limits.yaml
+cp config/specials_freshness.yaml.example config/specials_freshness.yaml
 cp config/secrets.example.yaml config/secrets.yaml
 ```
 
@@ -544,6 +547,7 @@ tail -n 50 /home/openhabian/specials-agent/cron.log
 
 - API calls are counted per store and stored in `config/api_usage.json`.
 - The counter rotates automatically at the start of each month.
+- Weekly vendor freshness state is stored in `config/vendor_specials_state.json`.
 - In `--testing` mode the script prints both the API calls used in the current
   run and the persisted monthly total.
 - In `--testing` mode the script also prints a per-recipient dry-run email
@@ -551,6 +555,21 @@ tail -n 50 /home/openhabian/specials-agent/cron.log
 - `config/limits.yaml` can define warning and hard limits per store.
 - Product search pagination is capped to the first 2 pages per keyword/store to
   reduce API usage while still covering the most relevant matches.
+- `config/specials_freshness.yaml` controls when each vendor should be checked
+  for "new week" data and when to force-send unchanged data.
+
+Freshness behaviour:
+
+- each vendor (Coles/Woolworths) is tracked independently.
+- by default, each vendor starts checking on Wednesday and force-sends on
+  Saturday if no change is detected.
+- on Wednesday-to-Saturday runs, unchanged vendor data is retried daily.
+- once a vendor changes in the current cycle, that vendor sends once and then
+  is skipped until the next cycle start day to reduce API usage.
+- if unchanged by force-send day, the report still sends with configurable
+  "no new data" and fallback preamble text.
+- this can produce separate emails on different days when one vendor updates
+  before the other.
 
 Example `config/limits.yaml`:
 
@@ -565,6 +584,31 @@ api_limits:
   woolworths:
     warn: 430
     hard: 450
+```
+
+Example `config/specials_freshness.yaml`:
+
+```yaml
+vendors:
+  default:
+    start_day: "Wednesday"
+    force_send_day: "Saturday"
+  # Optional per-vendor overrides:
+  # coles:
+  #   start_day: "Wednesday"
+  #   force_send_day: "Saturday"
+  # woolworths:
+  #   start_day: "Wednesday"
+  #   force_send_day: "Saturday"
+
+email:
+  # Leave blank to keep email_subject from email_config.yaml.
+  success_subject: ""
+  success_preamble: ""
+  no_new_data_subject: "No new specials data for {vendor}"
+  no_new_data_preamble: "No new API specials data was detected for {vendor} yet."
+  forced_send_subject: "Saturday fallback specials for {vendor}"
+  forced_send_preamble: "Fallback day reached for {vendor}; sending anyway."
 ```
 
 ---
@@ -583,5 +627,16 @@ Once it's wired up, your Pi becomes a small weekly grocery intel node that
 emails you when your favourite snacks go on special.
 
 
+## 11. Freshness Mitigation
 
+The weekly freshness mitigation flow is now built in:
+
+- Run on Wednesday/Thursday/Friday/Saturday (or your configured vendor window).
+- Persist last-known vendor specials signatures in
+  `config/vendor_specials_state.json`.
+- Detect changes independently for Coles and Woolworths.
+- Send vendor reports only when that vendor changes, or on force-send day if it
+  still has not changed.
+- Stop polling a vendor after it has changed and sent for the current cycle,
+  then resume at the next configured cycle start.
 

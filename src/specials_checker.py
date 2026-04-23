@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import html
 import json
 import os
@@ -8,7 +9,7 @@ import re
 import smtplib
 import ssl
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 from email.message import EmailMessage
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -69,6 +70,8 @@ BASE_HEADERS = {
 SEARCH_RESPONSE_CACHE: Dict[Tuple[str, str, int, int], dict] = {}
 
 API_USAGE_PATH = os.path.join("config", "api_usage.json")
+SPECIALS_FRESHNESS_CONFIG_PATH = os.path.join("config", "specials_freshness.yaml")
+VENDOR_SPECIALS_STATE_PATH = os.path.join("config", "vendor_specials_state.json")
 EMAIL_CONFIG_PATHS = [
     os.path.join("config", "email_config.yaml"),
     "email_config.yaml",
@@ -83,6 +86,39 @@ RUN_API_CALL_COUNT: Dict[str, int] = {
 }
 
 LIMIT_WARNINGS: List[str] = []
+STORE_NAMES = ("Coles", "Woolworths")
+WEEKDAY_NAME_TO_INT = {
+    "monday": 0,
+    "mon": 0,
+    "tuesday": 1,
+    "tue": 1,
+    "tues": 1,
+    "wednesday": 2,
+    "wed": 2,
+    "thursday": 3,
+    "thu": 3,
+    "thur": 3,
+    "thurs": 3,
+    "friday": 4,
+    "fri": 4,
+    "saturday": 5,
+    "sat": 5,
+    "sunday": 6,
+    "sun": 6,
+}
+
+
+@dataclass
+class VendorScheduleWindow:
+    start_day: int
+    force_send_day: int
+
+
+@dataclass
+class VendorProcessingPlan:
+    schedule: VendorScheduleWindow
+    should_query: bool
+    within_window: bool
 
 
 class APILimitExceeded(Exception):
@@ -294,6 +330,431 @@ def _record_api_call(store: str):
     API_USAGE_STATE["counts"] = API_CALL_COUNT
     _save_api_usage_state()
     _maybe_warn_limit(store)
+
+
+def _normalise_vendor_key(value: object) -> Optional[str]:
+    """Normalise config keys like 'coles' and 'woolies' to store names."""
+    if value is None:
+        return None
+    text = str(value).strip().lower()
+    alias_map = {
+        "coles": "Coles",
+        "woolworths": "Woolworths",
+        "woolies": "Woolworths",
+    }
+    return alias_map.get(text)
+
+
+def _coerce_weekday(value: object, field_name: str, default: int) -> int:
+    """Parse weekday names or integers into Python weekday indices."""
+    if value in (None, ""):
+        return default
+    if isinstance(value, (int, float)):
+        day = int(value)
+        if 0 <= day <= 6:
+            return day
+        raise ValueError(f"{field_name} must be between 0 (Mon) and 6 (Sun)")
+
+    key = str(value).strip().lower()
+    mapped = WEEKDAY_NAME_TO_INT.get(key)
+    if mapped is None:
+        raise ValueError(
+            f"{field_name} must be a weekday name (e.g. Wednesday) or 0-6"
+        )
+    return mapped
+
+
+def _coerce_day_distance(start_day: int, end_day: int) -> int:
+    """Return forward distance in days in a weekly cycle."""
+    return (end_day - start_day) % 7
+
+
+def _is_weekday_in_window(weekday: int, start_day: int, end_day: int) -> bool:
+    """Return True when weekday is inside a start->end weekly window."""
+    to_target = (weekday - start_day) % 7
+    to_end = _coerce_day_distance(start_day, end_day)
+    return to_target <= to_end
+
+
+def _cycle_anchor_for_day(today: date, start_day: int) -> date:
+    """Return the most recent start-day date at or before today."""
+    return today - timedelta(days=(today.weekday() - start_day) % 7)
+
+
+def _default_vendor_state() -> Dict[str, Any]:
+    """Create a blank persisted state payload for one vendor."""
+    return {
+        "cycle_anchor": None,
+        "reference_hash": None,
+        "last_known_hash": None,
+        "changed_this_cycle": False,
+        "sent_this_cycle": False,
+        "last_checked_date": None,
+        "last_sent_date": None,
+    }
+
+
+def _load_vendor_specials_state() -> Dict[str, Dict[str, Any]]:
+    """Load persisted per-vendor freshness state from config."""
+    state: Dict[str, Dict[str, Any]] = {
+        store: _default_vendor_state() for store in STORE_NAMES
+    }
+    if not os.path.exists(VENDOR_SPECIALS_STATE_PATH):
+        return state
+
+    try:
+        with open(VENDOR_SPECIALS_STATE_PATH, "r", encoding="utf-8") as f:
+            raw = json.load(f)
+    except Exception:
+        return state
+
+    vendors_raw = raw.get("vendors", {}) if isinstance(raw, dict) else {}
+    if not isinstance(vendors_raw, dict):
+        return state
+
+    for key, vendor_payload in vendors_raw.items():
+        vendor = _normalise_vendor_key(key)
+        if vendor is None or not isinstance(vendor_payload, dict):
+            continue
+        merged = _default_vendor_state()
+        merged.update(vendor_payload)
+        state[vendor] = merged
+    return state
+
+
+def _save_vendor_specials_state(state: Dict[str, Dict[str, Any]]) -> None:
+    """Persist per-vendor freshness state to config."""
+    os.makedirs(os.path.dirname(VENDOR_SPECIALS_STATE_PATH), exist_ok=True)
+    payload = {
+        "vendors": {store: state.get(store, _default_vendor_state()) for store in STORE_NAMES}
+    }
+    with open(VENDOR_SPECIALS_STATE_PATH, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2)
+
+
+def _load_specials_freshness_config() -> Dict[str, Any]:
+    """Load optional config controlling freshness schedules and email text."""
+    defaults = {
+        "vendors": {
+            "default": {
+                "start_day": "Wednesday",
+                "force_send_day": "Saturday",
+            }
+        },
+        "email": {
+            "success_subject": None,
+            "success_preamble": "",
+            "no_new_data_subject": "No new specials data for {vendor}",
+            "no_new_data_preamble": (
+                "No new API specials data was detected for {vendor} yet; retrying on "
+                "the next configured run day."
+            ),
+            "forced_send_subject": "Saturday fallback specials for {vendor}",
+            "forced_send_preamble": (
+                "No new API specials data was detected for {vendor} by the configured "
+                "fallback day, so this report is sent anyway."
+            ),
+        },
+    }
+    if not os.path.exists(SPECIALS_FRESHNESS_CONFIG_PATH):
+        return defaults
+
+    with open(SPECIALS_FRESHNESS_CONFIG_PATH, "r", encoding="utf-8") as f:
+        raw = yaml.safe_load(f) or {}
+
+    if not isinstance(raw, dict):
+        return defaults
+
+    merged = {
+        "vendors": dict(defaults["vendors"]),
+        "email": dict(defaults["email"]),
+    }
+
+    vendors_raw = raw.get("vendors")
+    if isinstance(vendors_raw, dict):
+        for key, value in vendors_raw.items():
+            if not isinstance(value, dict):
+                continue
+            if str(key).strip().lower() == "default":
+                merged["vendors"]["default"].update(value)
+                continue
+            vendor = _normalise_vendor_key(key)
+            if vendor:
+                merged["vendors"][vendor] = value
+
+    email_raw = raw.get("email")
+    if isinstance(email_raw, dict):
+        merged["email"].update(email_raw)
+
+    return merged
+
+
+def _resolve_vendor_schedule(
+    config: Dict[str, Any],
+    vendor: str,
+) -> VendorScheduleWindow:
+    """Resolve effective start and force-send weekdays for one vendor."""
+    vendors_cfg = config.get("vendors", {}) if isinstance(config, dict) else {}
+    default_cfg = vendors_cfg.get("default", {}) if isinstance(vendors_cfg, dict) else {}
+    vendor_cfg = vendors_cfg.get(vendor, {}) if isinstance(vendors_cfg, dict) else {}
+    start_day = _coerce_weekday(
+        vendor_cfg.get("start_day", default_cfg.get("start_day")),
+        field_name=f"{vendor} start_day",
+        default=2,
+    )
+    force_send_day = _coerce_weekday(
+        vendor_cfg.get("force_send_day", default_cfg.get("force_send_day")),
+        field_name=f"{vendor} force_send_day",
+        default=5,
+    )
+    return VendorScheduleWindow(start_day=start_day, force_send_day=force_send_day)
+
+
+def _prepare_vendor_processing_plans(
+    freshness_config: Dict[str, Any],
+    state: Dict[str, Dict[str, Any]],
+    today: date,
+) -> Dict[str, VendorProcessingPlan]:
+    """Build per-vendor query plans, resetting cycle state when required."""
+    plans: Dict[str, VendorProcessingPlan] = {}
+    for vendor in STORE_NAMES:
+        vendor_state = state.setdefault(vendor, _default_vendor_state())
+        schedule = _resolve_vendor_schedule(freshness_config, vendor)
+        anchor_date = _cycle_anchor_for_day(today, schedule.start_day)
+        anchor_key = anchor_date.isoformat()
+
+        if vendor_state.get("cycle_anchor") != anchor_key:
+            vendor_state["cycle_anchor"] = anchor_key
+            vendor_state["reference_hash"] = vendor_state.get("last_known_hash")
+            vendor_state["changed_this_cycle"] = False
+            vendor_state["sent_this_cycle"] = False
+
+        within_window = _is_weekday_in_window(
+            today.weekday(),
+            schedule.start_day,
+            schedule.force_send_day,
+        )
+        already_completed = bool(
+            vendor_state.get("changed_this_cycle") and vendor_state.get("sent_this_cycle")
+        )
+        plans[vendor] = VendorProcessingPlan(
+            schedule=schedule,
+            should_query=within_window and not already_completed,
+            within_window=within_window,
+        )
+
+    return plans
+
+
+def _build_vendor_offers_view(
+    all_offers: Dict[str, List[Offer]],
+    vendor: str,
+    allowed_watch_names: Optional[set[str]] = None,
+) -> Dict[str, List[Offer]]:
+    """Return offers filtered to one vendor while preserving watchlist keys."""
+    filtered: Dict[str, List[Offer]] = {}
+    for watch_name, offers in all_offers.items():
+        if allowed_watch_names is not None and watch_name not in allowed_watch_names:
+            continue
+        filtered[watch_name] = [offer for offer in offers if offer.store == vendor]
+    return filtered
+
+
+def _vendor_offer_signature(vendor_offers: Dict[str, List[Offer]]) -> str:
+    """Build a stable checksum used to detect specials changes per vendor."""
+    payload: List[Dict[str, Any]] = []
+    for watch_name in sorted(vendor_offers.keys()):
+        offers = vendor_offers[watch_name]
+        serialised_offers: List[Dict[str, Any]] = []
+        for offer in sorted(
+            offers,
+            key=lambda item: (
+                item.store,
+                item.product_title,
+                item.brand or "",
+                item.size or "",
+                round(item.price, 2),
+                item.url or "",
+                item.barcode or "",
+                round(item.was_price, 2) if item.was_price is not None else -1,
+            ),
+        ):
+            serialised_offers.append(
+                {
+                    "store": offer.store,
+                    "product_title": offer.product_title,
+                    "brand": offer.brand,
+                    "price": round(offer.price, 2),
+                    "size": offer.size,
+                    "url": offer.url,
+                    "barcode": offer.barcode,
+                    "was_price": (
+                        round(offer.was_price, 2)
+                        if offer.was_price is not None
+                        else None
+                    ),
+                }
+            )
+        payload.append({"watch_name": watch_name, "offers": serialised_offers})
+
+    raw = json.dumps(payload, sort_keys=True, ensure_ascii=True)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _render_template(
+    value: object,
+    fallback: str,
+    **context: str,
+) -> str:
+    """Render a configurable template with format placeholders."""
+    template = str(value if value not in (None, "") else fallback)
+    try:
+        return template.format(**context)
+    except Exception:
+        return template
+
+
+def _prepend_preamble(report: str, preamble: str) -> str:
+    """Prefix plain-text report body with a configured preamble."""
+    preamble_text = (preamble or "").strip()
+    if not preamble_text:
+        return report
+    return "\n\n".join([preamble_text, report])
+
+
+def _prepend_preamble_html(html_report: str, preamble: str) -> str:
+    """Prefix HTML report body with a paragraph preamble."""
+    preamble_text = (preamble or "").strip()
+    if not preamble_text:
+        return html_report
+    prefix = f"<p>{html.escape(preamble_text)}</p>"
+    opening = '<html><body style="font-family: Arial, sans-serif; color: #222;">'
+    if html_report.startswith(opening):
+        return opening + prefix + html_report[len(opening):]
+    return prefix + html_report
+
+
+def _format_vendor_list(vendors: List[str]) -> str:
+    """Format vendor names for subject/preamble placeholders."""
+    if not vendors:
+        return ""
+    if len(vendors) == 1:
+        return vendors[0]
+    if len(vendors) == 2:
+        return f"{vendors[0]} and {vendors[1]}"
+    return ", ".join(vendors[:-1]) + f", and {vendors[-1]}"
+
+
+def _status_label(mode: str) -> str:
+    """Map internal mode values to stable template-facing labels."""
+    labels = {
+        "success": "new_data",
+        "forced_send": "forced_send",
+        "no_new_data": "no_new_data",
+    }
+    return labels.get(mode, mode)
+
+
+def _build_vendor_mode_summary(vendor_modes: Dict[str, str]) -> str:
+    """Return a compact human-readable per-vendor mode summary."""
+    parts = [
+        f"{vendor}: {_status_label(mode)}"
+        for vendor, mode in sorted(vendor_modes.items())
+    ]
+    return "; ".join(parts)
+
+
+def _build_run_subject_and_preamble(
+    email_cfg: Dict[str, Any],
+    freshness_config: Dict[str, Any],
+    vendor_modes: Dict[str, str],
+) -> Tuple[str, str]:
+    """Resolve subject/preamble for one run that may include multiple vendors."""
+    email_cfg_subject = str(
+        email_cfg.get("email_subject", "Weekly grocery specials report")
+    ).strip() or "Weekly grocery specials report"
+    email_cfg_preamble = str(email_cfg.get("email_preamble", "")).strip()
+
+    freshness_email = (
+        freshness_config.get("email", {})
+        if isinstance(freshness_config, dict)
+        else {}
+    )
+    if not isinstance(freshness_email, dict):
+        freshness_email = {}
+
+    vendors = sorted(vendor_modes.keys())
+    vendor_text = _format_vendor_list(vendors)
+    mode_values = set(vendor_modes.values())
+    mode = next(iter(mode_values)) if len(mode_values) == 1 else "mixed"
+    context = {
+        "vendor": vendor_text,
+        "vendors": vendor_text,
+        "vendor_summary": _build_vendor_mode_summary(vendor_modes),
+    }
+
+    if mode == "mixed":
+        subject = _render_template(
+            freshness_email.get("mixed_subject"),
+            fallback="Specials update ({vendor_summary})",
+            **context,
+        )
+        preamble = _render_template(
+            freshness_email.get("mixed_preamble"),
+            fallback=(
+                "This run contains mixed vendor freshness states: "
+                "{vendor_summary}."
+            ),
+            **context,
+        )
+        return subject, preamble
+
+    if mode == "success":
+        subject = _render_template(
+            freshness_email.get("success_subject"),
+            fallback=email_cfg_subject,
+            **context,
+        )
+        preamble = _render_template(
+            freshness_email.get("success_preamble"),
+            fallback=email_cfg_preamble,
+            **context,
+        )
+        return subject, preamble
+
+    if mode == "forced_send":
+        no_new = _render_template(
+            freshness_email.get("no_new_data_preamble"),
+            fallback="No new specials data was detected for {vendor}.",
+            **context,
+        )
+        forced = _render_template(
+            freshness_email.get("forced_send_preamble"),
+            fallback=(
+                "This is the configured fallback send day, so the report is sent "
+                "anyway."
+            ),
+            **context,
+        )
+        subject = _render_template(
+            freshness_email.get("forced_send_subject"),
+            fallback="Saturday fallback specials for {vendor}",
+            **context,
+        )
+        preamble = " ".join(part for part in [no_new.strip(), forced.strip()] if part)
+        return subject, preamble
+
+    subject = _render_template(
+        freshness_email.get("no_new_data_subject"),
+        fallback="No new specials data for {vendor}",
+        **context,
+    )
+    preamble = _render_template(
+        freshness_email.get("no_new_data_preamble"),
+        fallback="No new API specials data was detected for {vendor}.",
+        **context,
+    )
+    return subject, preamble
 
 
 # =========================
@@ -1107,7 +1568,10 @@ def _collect_keyword_offers(
     return offers
 
 
-def collect_offers_by_keyword(watchlist: List[WatchItem]) -> Dict[str, List[Offer]]:
+def collect_offers_by_keyword(
+    watchlist: List[WatchItem],
+    allowed_stores: Optional[set[str]] = None,
+) -> Dict[str, List[Offer]]:
     """Search each unique keyword once per store and reuse the results."""
     offers_by_keyword: Dict[str, List[Offer]] = {}
     seen_keywords: Dict[str, str] = {}
@@ -1119,8 +1583,11 @@ def collect_offers_by_keyword(watchlist: List[WatchItem]) -> Dict[str, List[Offe
             if not normalised_keyword:
                 continue
             seen_keywords.setdefault(normalised_keyword, keyword)
+            allowed_item_stores = set(watch_item.stores)
+            if allowed_stores is not None:
+                allowed_item_stores = allowed_item_stores.intersection(allowed_stores)
             keyword_stores.setdefault(normalised_keyword, set()).update(
-                watch_item.stores
+                allowed_item_stores
             )
 
     jobs = {
@@ -1809,11 +2276,25 @@ def main(
     RUN_API_CALL_COUNT["Coles"] = 0
     RUN_API_CALL_COUNT["Woolworths"] = 0
     watchlist = load_watchlist(watchlist_path)
+    freshness_config = _load_specials_freshness_config()
+    vendor_state = _load_vendor_specials_state()
+    today = datetime.now(UTC).date()
+    vendor_plans = _prepare_vendor_processing_plans(
+        freshness_config,
+        vendor_state,
+        today,
+    )
+    active_stores = {
+        vendor for vendor, plan in vendor_plans.items() if plan.should_query
+    }
     all_offers: Dict[str, List[Offer]] = {}
 
     limit_error: Optional[str] = None
     try:
-        offers_by_keyword = collect_offers_by_keyword(watchlist)
+        offers_by_keyword = collect_offers_by_keyword(
+            watchlist,
+            allowed_stores=active_stores,
+        )
         for watch_item in watchlist:
             all_offers[watch_item.name] = find_offers_for_watch_item(
                 watch_item, offers_by_keyword
@@ -1826,10 +2307,84 @@ def main(
     _, email_cfg = load_email_config()
     recipients = get_email_recipients(email_cfg)
     validate_watchlist_email_indices(watchlist, recipients)
-    deliveries = build_email_deliveries(watchlist, all_offers, email_cfg)
-    report = deliveries[0]["report"] if deliveries else ""
-    html_report = deliveries[0]["html_report"] if deliveries else None
-    print(report)
+
+    vendor_send_modes: Dict[str, str] = {}
+    for vendor in STORE_NAMES:
+        plan = vendor_plans[vendor]
+        if not plan.should_query:
+            continue
+
+        vendor_watch_names = {
+            watch_item.name for watch_item in watchlist if vendor in watch_item.stores
+        }
+        if not vendor_watch_names:
+            continue
+        vendor_offers = _build_vendor_offers_view(
+            all_offers,
+            vendor,
+            allowed_watch_names=vendor_watch_names,
+        )
+        current_hash = _vendor_offer_signature(vendor_offers)
+        state = vendor_state.setdefault(vendor, _default_vendor_state())
+        state["last_checked_date"] = today.isoformat()
+
+        reference_hash = state.get("reference_hash")
+        has_changed = reference_hash is None or current_hash != reference_hash
+        if has_changed:
+            state["changed_this_cycle"] = True
+            state["last_known_hash"] = current_hash
+            vendor_send_modes[vendor] = "success"
+            continue
+
+        if today.weekday() == plan.schedule.force_send_day:
+            vendor_send_modes[vendor] = "forced_send"
+
+    deliveries: List[Dict[str, Any]] = []
+    due_vendors = sorted(vendor_send_modes.keys())
+    if due_vendors:
+        due_vendor_set = set(due_vendors)
+        combined_watchlist = [
+            watch_item
+            for watch_item in watchlist
+            if due_vendor_set.intersection(set(watch_item.stores))
+        ]
+        combined_watch_names = {item.name for item in combined_watchlist}
+        combined_offers: Dict[str, List[Offer]] = {}
+        for watch_name, offers in all_offers.items():
+            if watch_name not in combined_watch_names:
+                continue
+            combined_offers[watch_name] = [
+                offer for offer in offers if offer.store in due_vendor_set
+            ]
+
+        subject, preamble = _build_run_subject_and_preamble(
+            email_cfg,
+            freshness_config,
+            vendor_send_modes,
+        )
+        deliveries = build_email_deliveries(
+            combined_watchlist,
+            combined_offers,
+            email_cfg,
+            subject=subject,
+        )
+        for delivery in deliveries:
+            delivery["report"] = _prepend_preamble(delivery["report"], preamble)
+            delivery["html_report"] = _prepend_preamble_html(
+                delivery["html_report"],
+                preamble,
+            )
+
+        for vendor in due_vendors:
+            vendor_state[vendor]["sent_this_cycle"] = True
+            vendor_state[vendor]["last_sent_date"] = today.isoformat()
+
+    _save_vendor_specials_state(vendor_state)
+
+    if deliveries:
+        print(deliveries[0]["report"])
+    else:
+        print("[INFO] No vendor reports due today based on freshness state.")
 
     if testing_mode:
         print("[INFO] Testing mode: email send skipped.")
@@ -1851,7 +2406,7 @@ def main(
             for msg in LIMIT_WARNINGS:
                 print(f"  - {msg}")
 
-    if send_email and not testing_mode and report.strip():
+    if send_email and not testing_mode and deliveries:
         for delivery in deliveries:
             send_email_report(
                 delivery["report"],

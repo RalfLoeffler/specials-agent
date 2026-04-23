@@ -1,0 +1,39 @@
+# Copy this file to config/specials_freshness.yaml to configure
+# vendor freshness checks and fallback email messaging.
+vendors:
+  default:
+    # Start checking for new weekly specials on this day.
+    start_day: "Wednesday"
+    # If no change is detected by this day, send anyway.
+    force_send_day: "Saturday"
+  # Optional per-vendor overrides.
+  # coles:
+  #   start_day: "Wednesday"
+  #   force_send_day: "Saturday"
+  # woolworths:
+  #   start_day: "Wednesday"
+  #   force_send_day: "Saturday"
+
+email:
+  # Uses email_config.yaml email_subject when omitted.
+  # You can include placeholders in any subject/preamble:
+  #   {vendor} or {vendors}: formatted vendor list, e.g. "Coles and Woolworths"
+  #   {vendor_summary}: per-vendor status summary, e.g.
+  #     "Coles: new_data; Woolworths: forced_send"
+  success_subject: ""
+  success_preamble: ""
+
+  no_new_data_subject: "No new specials data for {vendor}"
+  no_new_data_preamble: >-
+    No new API specials data was detected for {vendor} yet; retrying on the
+    next configured run day.
+
+  forced_send_subject: "Saturday fallback specials for {vendor}"
+  forced_send_preamble: >-
+    No new API specials data was detected for {vendor} by the configured
+    fallback day, so this report is sent anyway.
+
+  # Used when one run includes multiple vendors with different states.
+  mixed_subject: "Specials update ({vendor_summary})"
+  mixed_preamble: >-
+    This run contains mixed vendor freshness states: {vendor_summary}.
