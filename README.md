@@ -654,3 +654,14 @@ The weekly freshness mitigation flow is now built in:
 - Stop polling a vendor after it has changed and sent for the current cycle,
   then resume at the next configured cycle start.
 
+  ## TODO
+
+  don't remove this section heading after completion, just remove the done parts and
+  comment them at the correct spot
+  - don't use a "cheapest over all" entry after each individual table, do the following instead:
+    - add a "cheapest" section on top of the email right before the individual tables. use a line for each article and write the name, price, store and quantity with a web link
+    - in the table indicate the cheapest article by using red font, but make this configurable with red as the default
+    - if one vendor has no fresh data, indicate the cheapest price of the updated vendor, but make a note that this may be cheaper at the other vendor
+    - if a single vendor didn't update before but is now up-to-date, give the cheapest option of both vendors
+  -  [don't work on this] if there are empty list entries, they show up as [] in the excel file, it should be handled differently, there should be an empty or white space and this should be added in the conversion script
+
