@@ -10,6 +10,7 @@ email_subject: "Weekly grocery specials report"
 email_test_subject: "Email test - grocery specials checker"
 report_verbose: false
 report_calls: false
+cheapest_highlight_color: "red"
 to_email: "where_to_send_report@gmail.com"
 # Optional indexed recipient list for per-item routing.
 # If this is set, index 0 is the first address, index 1 the second, and so on.

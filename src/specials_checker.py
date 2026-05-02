@@ -388,6 +388,7 @@ def _default_vendor_state() -> Dict[str, Any]:
         "cycle_anchor": None,
         "reference_hash": None,
         "last_known_hash": None,
+        "last_known_payload": {},
         "changed_this_cycle": False,
         "sent_this_cycle": False,
         "last_checked_date": None,
@@ -559,6 +560,69 @@ def _build_vendor_offers_view(
             continue
         filtered[watch_name] = [offer for offer in offers if offer.store == vendor]
     return filtered
+
+
+def _serialise_offer_for_state(offer: Offer) -> Dict[str, Any]:
+    """Convert an Offer to a JSON-safe payload for persistence."""
+    return {
+        "watch_name": offer.watch_name,
+        "store": offer.store,
+        "product_title": offer.product_title,
+        "brand": offer.brand,
+        "price": round(offer.price, 2),
+        "size": offer.size,
+        "url": offer.url,
+        "barcode": offer.barcode,
+        "was_price": (
+            round(offer.was_price, 2) if offer.was_price is not None else None
+        ),
+        "is_half_price": bool(offer.is_half_price),
+    }
+
+
+def _deserialise_offer_from_state(payload: Dict[str, Any]) -> Offer:
+    """Convert persisted offer payload back into an Offer instance."""
+    return Offer(
+        watch_name=str(payload.get("watch_name", "")),
+        store=str(payload.get("store", "")),
+        product_title=str(payload.get("product_title", "")),
+        brand=_coerce_str(payload.get("brand")),
+        price=float(payload.get("price", 0.0)),
+        size=_coerce_str(payload.get("size")) or "",
+        url=_coerce_str(payload.get("url")) or "",
+        barcode=_coerce_str(payload.get("barcode")),
+        was_price=_coerce_float(payload.get("was_price")),
+        is_half_price=bool(payload.get("is_half_price", False)),
+    )
+
+
+def _snapshot_vendor_offers(vendor_offers: Dict[str, List[Offer]]) -> Dict[str, Any]:
+    """Build persisted state payload for one vendor's watch-item offers."""
+    snapshot: Dict[str, Any] = {}
+    for watch_name, offers in vendor_offers.items():
+        snapshot[watch_name] = [_serialise_offer_for_state(offer) for offer in offers]
+    return snapshot
+
+
+def _restore_vendor_offers(snapshot: object) -> Dict[str, List[Offer]]:
+    """Restore persisted vendor offers payload into Offer objects."""
+    if not isinstance(snapshot, dict):
+        return {}
+
+    restored: Dict[str, List[Offer]] = {}
+    for watch_name, offer_items in snapshot.items():
+        if not isinstance(offer_items, list):
+            continue
+        offers: List[Offer] = []
+        for raw in offer_items:
+            if not isinstance(raw, dict):
+                continue
+            offer = _deserialise_offer_from_state(raw)
+            if not offer.watch_name:
+                offer.watch_name = str(watch_name)
+            offers.append(offer)
+        restored[str(watch_name)] = offers
+    return restored
 
 
 def _vendor_offer_signature(vendor_offers: Dict[str, List[Offer]]) -> str:
@@ -1753,11 +1817,115 @@ def find_offers_for_watch_item(
     return offers
 
 
+def _build_cheapest_summary(
+    all_offers: Dict[str, List[Offer]],
+    expected_watch_stores: Optional[Dict[str, set[str]]] = None,
+) -> Dict[str, Dict[str, Any]]:
+    """Return per-watch cheapest offer plus freshness-aware advisory notes."""
+    summary: Dict[str, Dict[str, Any]] = {}
+    for watch_name, offers in all_offers.items():
+        sorted_offers = sorted(offers, key=lambda offer: (offer.price, offer.store))
+        cheapest = sorted_offers[0] if sorted_offers else None
+        available_stores = {offer.store for offer in sorted_offers}
+        expected_stores = (
+            set(expected_watch_stores.get(watch_name, set()))
+            if expected_watch_stores
+            else set()
+        )
+        missing_expected = sorted(expected_stores.difference(available_stores))
+
+        note = ""
+        if cheapest and missing_expected:
+            if len(missing_expected) == 1:
+                note = (
+                    f"Note: {missing_expected[0]} has no fresh data in this run; "
+                    "it may currently be cheaper there."
+                )
+            else:
+                note = (
+                    "Note: some configured stores have no fresh data in this run; "
+                    "prices there may currently be cheaper."
+                )
+
+        summary[watch_name] = {
+            "cheapest": cheapest,
+            "note": note,
+            "available_stores": available_stores,
+        }
+
+    return summary
+
+
+def _build_text_cheapest_section(
+    all_offers: Dict[str, List[Offer]],
+    expected_watch_stores: Optional[Dict[str, set[str]]] = None,
+) -> List[str]:
+    """Build the plain-text top section listing cheapest offers by watch item."""
+    lines: List[str] = ["## Cheapest", ""]
+    summary = _build_cheapest_summary(all_offers, expected_watch_stores)
+    for watch_name in all_offers.keys():
+        row = summary.get(watch_name, {})
+        cheapest = row.get("cheapest")
+        note = str(row.get("note", "")).strip()
+        if not isinstance(cheapest, Offer):
+            lines.append(f"- {watch_name}: No matching products or specials found.")
+            continue
+
+        size = f"{cheapest.size}" if cheapest.size else "size unknown"
+        link = cheapest.url or "(no link)"
+        lines.append(
+            f"- {watch_name}: ${cheapest.price:.2f} at {cheapest.store} "
+            f"({size}) - {link}"
+        )
+        if note:
+            lines.append(f"  {note}")
+    lines.append("")
+    return lines
+
+
+def _build_html_cheapest_section(
+    all_offers: Dict[str, List[Offer]],
+    expected_watch_stores: Optional[Dict[str, set[str]]] = None,
+) -> List[str]:
+    """Build the HTML top section listing cheapest offers by watch item."""
+    parts: List[str] = ["<h2>Cheapest</h2>", "<ul>"]
+    summary = _build_cheapest_summary(all_offers, expected_watch_stores)
+    for watch_name in all_offers.keys():
+        row = summary.get(watch_name, {})
+        cheapest = row.get("cheapest")
+        note = str(row.get("note", "")).strip()
+        if not isinstance(cheapest, Offer):
+            parts.append(
+                f"<li><strong>{html.escape(watch_name)}</strong>: "
+                "No matching products or specials found.</li>"
+            )
+            continue
+
+        size = html.escape(cheapest.size) if cheapest.size else "size unknown"
+        link_html = (
+            f'<a href="{html.escape(cheapest.url, quote=True)}">Open</a>'
+            if cheapest.url
+            else "(no link)"
+        )
+        parts.append(
+            "<li>"
+            f"<strong>{html.escape(watch_name)}</strong>: "
+            f"${cheapest.price:.2f} at {html.escape(cheapest.store)} "
+            f"({size}) - {link_html}"
+            "</li>"
+        )
+        if note:
+            parts.append(f"<li><em>{html.escape(note)}</em></li>")
+    parts.append("</ul>")
+    return parts
+
+
 def build_report(
     all_offers: Dict[str, List[Offer]],
     limit_warnings: Optional[List[str]] = None,
     verbose: bool = False,
     api_calls_footer: Optional[str] = None,
+    expected_watch_stores: Optional[Dict[str, set[str]]] = None,
 ) -> str:
     """Render a text report plus optional API usage warnings."""
     lines: List[str] = []
@@ -1768,6 +1936,13 @@ def build_report(
             lines.append(f"- {msg}")
         lines.append("")
 
+    lines.extend(
+        _build_text_cheapest_section(
+            all_offers,
+            expected_watch_stores=expected_watch_stores,
+        )
+    )
+
     for watch_name, offers in all_offers.items():
         lines.append(f"## {watch_name}")
         if not offers:
@@ -1776,13 +1951,7 @@ def build_report(
 
         offers_sorted = sorted(offers, key=lambda offer: (offer.store, offer.price))
 
-        cheapest_by_store: Dict[str, Offer] = {}
-        for offer in offers_sorted:
-            if (
-                offer.store not in cheapest_by_store
-                or offer.price < cheapest_by_store[offer.store].price
-            ):
-                cheapest_by_store[offer.store] = offer
+        watch_cheapest = min(offers_sorted, key=lambda offer: offer.price)
 
         for offer in offers_sorted:
             was_str = f" (was ${offer.was_price:.2f})" if offer.was_price else ""
@@ -1799,11 +1968,8 @@ def build_report(
                 f"{barcode_str}{url_str}"
             )
 
-        if len(cheapest_by_store) >= 2:
-            cheapest = min(cheapest_by_store.values(), key=lambda offer: offer.price)
-            lines.append(
-                f"**Cheapest overall:** {cheapest.store} at ${cheapest.price:.2f}"
-            )
+            if offer is watch_cheapest:
+                lines[-1] += " [CHEAPEST]"
 
         lines.append("")
 
@@ -1821,6 +1987,8 @@ def build_html_report(
     limit_warnings: Optional[List[str]] = None,
     verbose: bool = False,
     api_calls_footer: Optional[str] = None,
+    expected_watch_stores: Optional[Dict[str, set[str]]] = None,
+    cheapest_highlight_color: str = "red",
 ) -> str:
     """Render the report as HTML tables for email clients."""
     parts: List[str] = [
@@ -1833,6 +2001,13 @@ def build_html_report(
             parts.append(f"<li>{html.escape(msg)}</li>")
         parts.append("</ul>")
 
+    parts.extend(
+        _build_html_cheapest_section(
+            all_offers,
+            expected_watch_stores=expected_watch_stores,
+        )
+    )
+
     for watch_name, offers in all_offers.items():
         parts.append(f"<h2>{html.escape(watch_name)}</h2>")
         if not offers:
@@ -1840,13 +2015,7 @@ def build_html_report(
             continue
 
         offers_sorted = sorted(offers, key=lambda offer: (offer.store, offer.price))
-        cheapest_by_store: Dict[str, Offer] = {}
-        for offer in offers_sorted:
-            if (
-                offer.store not in cheapest_by_store
-                or offer.price < cheapest_by_store[offer.store].price
-            ):
-                cheapest_by_store[offer.store] = offer
+        watch_cheapest = min(offers_sorted, key=lambda offer: offer.price)
 
         headers = ["Store", "Product", "Brand", "Price", "Size", "Link"]
         if verbose:
@@ -1896,21 +2065,19 @@ def build_html_report(
 
             parts.append("<tr>")
             for cell in cells:
+                style = (
+                    f"border: 1px solid #ccc; padding: 8px; vertical-align: top; "
+                    f"color: {cheapest_highlight_color};"
+                    if offer is watch_cheapest
+                    else "border: 1px solid #ccc; padding: 8px; vertical-align: top;"
+                )
                 parts.append(
-                    '<td style="border: 1px solid #ccc; padding: 8px; '
-                    'vertical-align: top;">'
+                    f'<td style="{style}">'
                     f"{cell}</td>"
                 )
             parts.append("</tr>")
 
         parts.append("</tbody></table>")
-
-        if len(cheapest_by_store) >= 2:
-            cheapest = min(cheapest_by_store.values(), key=lambda offer: offer.price)
-            parts.append(
-                "<p><strong>Cheapest overall:</strong> "
-                f"{html.escape(cheapest.store)} at ${cheapest.price:.2f}</p>"
-            )
 
     if api_calls_footer:
         parts.append("<h2>Accumulated API calls</h2><ul>")
@@ -1977,6 +2144,12 @@ def build_email_deliveries(
     """Build per-recipient email payloads using the configured routing rules."""
     recipients = get_email_recipients(email_cfg)
     deliveries: List[Dict[str, Any]] = []
+    expected_watch_stores = {
+        watch_item.name: set(watch_item.stores) for watch_item in watchlist
+    }
+    cheapest_color = (
+        str(email_cfg.get("cheapest_highlight_color", "red")).strip() or "red"
+    )
 
     if recipients:
         for recipient_index, recipient in enumerate(recipients):
@@ -2017,12 +2190,15 @@ def build_email_deliveries(
                         limit_warnings=LIMIT_WARNINGS,
                         verbose=report_verbose,
                         api_calls_footer=api_calls_footer,
+                        expected_watch_stores=expected_watch_stores,
                     ),
                     "html_report": build_html_report(
                         recipient_offers,
                         limit_warnings=LIMIT_WARNINGS,
                         verbose=report_verbose,
                         api_calls_footer=api_calls_footer,
+                        expected_watch_stores=expected_watch_stores,
+                        cheapest_highlight_color=cheapest_color,
                     ),
                 }
             )
@@ -2056,12 +2232,15 @@ def build_email_deliveries(
                 limit_warnings=LIMIT_WARNINGS,
                 verbose=default_report_verbose,
                 api_calls_footer=default_api_calls_footer,
+                expected_watch_stores=expected_watch_stores,
             ),
             "html_report": build_html_report(
                 all_offers,
                 limit_warnings=LIMIT_WARNINGS,
                 verbose=default_report_verbose,
                 api_calls_footer=default_api_calls_footer,
+                expected_watch_stores=expected_watch_stores,
+                cheapest_highlight_color=cheapest_color,
             ),
         }
     )
@@ -2363,6 +2542,7 @@ def main(
         if has_changed:
             state["changed_this_cycle"] = True
             state["last_known_hash"] = current_hash
+            state["last_known_payload"] = _snapshot_vendor_offers(vendor_offers)
             vendor_send_modes[vendor] = "success"
             continue
 
@@ -2373,10 +2553,18 @@ def main(
     due_vendors = sorted(vendor_send_modes.keys())
     if due_vendors:
         due_vendor_set = set(due_vendors)
+        comparison_vendor_set = set(due_vendor_set)
+        for vendor in STORE_NAMES:
+            if vendor in due_vendor_set:
+                continue
+            state = vendor_state.setdefault(vendor, _default_vendor_state())
+            if state.get("changed_this_cycle"):
+                comparison_vendor_set.add(vendor)
+
         combined_watchlist = [
             watch_item
             for watch_item in watchlist
-            if due_vendor_set.intersection(set(watch_item.stores))
+            if comparison_vendor_set.intersection(set(watch_item.stores))
         ]
         combined_watch_names = {item.name for item in combined_watchlist}
         combined_offers: Dict[str, List[Offer]] = {}
@@ -2386,6 +2574,25 @@ def main(
             combined_offers[watch_name] = [
                 offer for offer in offers if offer.store in due_vendor_set
             ]
+
+        for vendor in comparison_vendor_set:
+            if vendor in due_vendor_set:
+                continue
+            restored = _restore_vendor_offers(
+                vendor_state.setdefault(vendor, _default_vendor_state()).get(
+                    "last_known_payload"
+                )
+            )
+            for watch_name, restored_offers in restored.items():
+                if watch_name not in combined_watch_names:
+                    continue
+                existing = combined_offers.setdefault(watch_name, [])
+                existing.extend(
+                    [offer for offer in restored_offers if offer.store == vendor]
+                )
+
+        for watch_name, offers in list(combined_offers.items()):
+            combined_offers[watch_name] = _dedupe_offers(offers)
 
         subject, preamble = _build_run_subject_and_preamble(
             email_cfg,

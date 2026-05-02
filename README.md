@@ -148,6 +148,7 @@ email_subject: "Weekly grocery specials report"
 email_test_subject: "Email test - grocery specials checker"
 report_verbose: false
 report_calls: false
+cheapest_highlight_color: "red"
 to_email: "where_to_send_report@gmail.com"
 # Optional indexed recipient list used by watchlist email_index/email_indices.
 # report_verbose can also be a list aligned with to_emails, for example:
@@ -171,6 +172,8 @@ Notes:
 - `report_verbose: true` adds extra columns such as previous price and barcode
 - `report_calls: true` appends the accumulated monthly API call counts to the
   bottom of the email
+- `cheapest_highlight_color` controls the HTML table color used to highlight
+  the cheapest row per watch item (defaults to `red`)
 - `--testing` now prints a dry-run preview of each email, including which
   recipient would receive which routed watchlist items, without sending
   anything
@@ -574,6 +577,13 @@ Freshness behaviour:
   email per recipient and resolves subject/preamble using a mixed-state mode
   when vendor statuses differ (for example one vendor changed while the other
   is a force-send fallback).
+- each email now includes a top `Cheapest` section (before per-item tables)
+  listing watch item name, cheapest price, store, size, and link.
+- if one vendor has no fresh data in the current run, the cheapest section adds
+  a note that the other vendor may currently be cheaper.
+- if one vendor updates later in the cycle after the other already updated,
+  the comparison includes both vendors using persisted up-to-date data without
+  extra API calls.
 
 Mixed subject/preamble placeholders:
 
@@ -658,10 +668,13 @@ The weekly freshness mitigation flow is now built in:
 
   don't remove this section heading after completion, just remove the done parts and
   comment them at the correct spot
-  - don't use a "cheapest over all" entry after each individual table, do the following instead:
-    - add a "cheapest" section on top of the email right before the individual tables. use a line for each article and write the name, price, store and quantity with a web link
-    - in the table indicate the cheapest article by using red font, but make this configurable with red as the default
-    - if one vendor has no fresh data, indicate the cheapest price of the updated vendor, but make a note that this may be cheaper at the other vendor
-    - if a single vendor didn't update before but is now up-to-date, give the cheapest option of both vendors
+  <!-- done: removed per-table "cheapest overall" line and replaced with top-level
+    cheapest section including name/price/store/size/link -->
+  <!-- done: added configurable cheapest row highlighting in HTML table with
+    default color red (cheapest_highlight_color) -->
+  <!-- done: when one vendor has no fresh data this run, cheapest section now
+    adds a note that the other vendor may still be cheaper -->
+  <!-- done: when a vendor updates later in-cycle, reports compare against both
+    vendors by reusing persisted up-to-date offers from earlier updates -->
   -  [don't work on this] if there are empty list entries, they show up as [] in the excel file, it should be handled differently, there should be an empty or white space and this should be added in the conversion script
 
