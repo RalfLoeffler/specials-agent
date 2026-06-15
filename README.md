@@ -676,5 +676,6 @@ The weekly freshness mitigation flow is now built in:
     adds a note that the other vendor may still be cheaper -->
   <!-- done: when a vendor updates later in-cycle, reports compare against both
     vendors by reusing persisted up-to-date offers from earlier updates -->
-  -  [don't work on this] if there are empty list entries, they show up as [] in the excel file, it should be handled differently, there should be an empty or white space and this should be added in the conversion script
-
+  - if there are empty list entries, they show up as [] in the excel file, it should be handled differently, there should be an empty or white space and this should be added in the conversion script
+  - the logic for only one vendor having new data is wrong for early in hte week 
+  - make the 'no new data' note also in highlight color
