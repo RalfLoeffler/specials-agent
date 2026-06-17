@@ -2,9 +2,9 @@
 # vendor freshness checks and fallback email messaging.
 vendors:
   default:
-    # Start checking for new weekly specials on this day.
+    # Start checking for new weekly specials on this local-calendar day.
     start_day: "Wednesday"
-    # If no change is detected by this day, send anyway.
+    # If no change is detected by this local-calendar day, send anyway.
     force_send_day: "Saturday"
   # Optional per-vendor overrides.
   # coles:

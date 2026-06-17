@@ -176,7 +176,9 @@ Notes:
   the cheapest row per watch item (defaults to `red`)
 - `--testing` now prints a dry-run preview of each email, including which
   recipient would receive which routed watchlist items, without sending
-  anything
+  anything or marking a vendor report as sent
+- `--no-email` follows the normal checking flow without sending email or
+  marking a vendor report as sent
 - `to_email` keeps the original single-recipient behaviour
 - `to_emails` is an optional ordered recipient list; when present, watchlist
   entries can route matches by zero-based index
@@ -438,6 +440,9 @@ python src/specials_checker.py --no-email
 # Run the full checker and send email
 python src/specials_checker.py
 
+# Use a custom app log path
+python src/specials_checker.py --log-file logs/specials_checker.log
+
 # Export and re-import the watchlist through Excel
 python -m src.export_watchlist_to_excel --yaml watchlist.yaml --excel watchlist.xlsx
 python -m src.import_watchlist_from_excel --excel watchlist.xlsx --yaml watchlist.yaml
@@ -533,6 +538,40 @@ Example: every Wednesday at 09:05:
 The `cd` is important because the script reads relative paths such as
 `watchlist.yaml`, `config/secrets.yaml`, and `email_config.yaml`.
 
+The checker also writes an app-level rotating log to:
+
+```bash
+/home/openhabian/specials-agent/logs/specials_checker.log
+```
+
+This log records each process start, checker run date, per-vendor freshness
+status (`fresh`, `stale`, `skipped`), generated email deliveries, and email
+send attempts/successes/failures. It rotates at about 1 MB and keeps 5 backups.
+
+Quick log checks:
+
+```bash
+cd /home/openhabian/specials-agent
+
+# Last 100 app events
+tail -n 100 logs/specials_checker.log
+
+# Follow live while triggering or waiting for a run
+tail -f logs/specials_checker.log
+
+# Just the key run/vendor/email events
+grep -E "process_started|vendor_freshness|email_sent|email_send_failed|checker_run_finished" logs/specials_checker.log
+```
+
+If you run it as a `systemd` service instead of cron, stdout/stderr will also
+be available in the service journal. Replace `specials-checker.service` with
+your actual unit name if you used a different one:
+
+```bash
+sudo journalctl -u specials-checker.service -n 100 --no-pager
+sudo journalctl -u specials-checker.service -f
+```
+
 Sanity checks:
 
 ```bash
@@ -542,6 +581,7 @@ ls /home/openhabian/specials-agent
 ls /home/openhabian/specials-agent/.venv/bin/python
 sudo systemctl status cron
 tail -n 50 /home/openhabian/specials-agent/cron.log
+tail -n 50 /home/openhabian/specials-agent/logs/specials_checker.log
 ```
 
 ---
@@ -560,6 +600,9 @@ tail -n 50 /home/openhabian/specials-agent/cron.log
   reduce API usage while still covering the most relevant matches.
 - `config/specials_freshness.yaml` controls when each vendor should be checked
   for "new week" data and when to force-send unchanged data.
+- Freshness days are evaluated using the local date of the machine running the
+  script. For Raspberry Pi cron runs, make sure the Pi timezone matches when
+  you expect Wednesday/Saturday checks to happen.
 
 Freshness behaviour:
 
@@ -569,6 +612,9 @@ Freshness behaviour:
 - on Wednesday-to-Saturday runs, unchanged vendor data is retried daily.
 - once a vendor changes in the current cycle, that vendor sends once and then
   is skipped until the next cycle start day to reduce API usage.
+- a vendor is only recorded as sent after every intended recipient email is
+  accepted by the SMTP send path; test runs, `--no-email`, missing email config,
+  and failed sends remain unsent for retry.
 - if unchanged by force-send day, the report still sends with configurable
   "no new data" and fallback preamble text.
 - this can produce separate emails on different days when one vendor updates
@@ -641,7 +687,9 @@ email:
 
 - No email arrives
   Check `cron.log` on the Pi or console output during manual runs. Verify the
-  Gmail app password and account settings.
+  Gmail app password and account settings. If the log says no vendor reports
+  are due, inspect `config/vendor_specials_state.json`; the checker only skips
+  a changed vendor after a successful SMTP send in the current cycle.
 - RapidAPI errors such as `401`, `403`, or `429`
   Confirm `RAPIDAPI_KEY` or `config/secrets.yaml`, verify your RapidAPI
   subscription, and use `--test-coles` / `--test-woolies` to inspect the

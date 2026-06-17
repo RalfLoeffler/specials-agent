@@ -4,13 +4,16 @@ import argparse
 import hashlib
 import html
 import json
+import logging
 import os
 import re
 import smtplib
 import ssl
+import sys
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from email.message import EmailMessage
+from logging.handlers import RotatingFileHandler
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlsplit, urlunsplit
 
@@ -35,6 +38,62 @@ What this script does
 DEFAULT_PAGE_SIZE = 20
 MAX_PAGE_SIZE = 20
 MAX_PAGES_PER_KEYWORD = 2
+LOG_PATH = os.path.join("logs", "specials_checker.log")
+LOG_MAX_BYTES = 1_000_000
+LOG_BACKUP_COUNT = 5
+LOGGER = logging.getLogger("specials_checker")
+ACTIVE_LOG_PATH: Optional[str] = None
+
+
+def configure_logging(log_path: str = LOG_PATH) -> str:
+    """Configure the file logger once and return the absolute log path."""
+    global ACTIVE_LOG_PATH
+
+    if LOGGER.handlers:
+        return ACTIVE_LOG_PATH or os.path.abspath(log_path)
+
+    resolved_path = os.path.abspath(log_path)
+    log_dir = os.path.dirname(resolved_path)
+    if log_dir:
+        os.makedirs(log_dir, exist_ok=True)
+
+    LOGGER.setLevel(logging.INFO)
+    LOGGER.propagate = False
+
+    handler = RotatingFileHandler(
+        resolved_path,
+        maxBytes=LOG_MAX_BYTES,
+        backupCount=LOG_BACKUP_COUNT,
+        encoding="utf-8",
+    )
+    handler.setFormatter(
+        logging.Formatter(
+            "%(asctime)s %(levelname)s %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S%z",
+        )
+    )
+    LOGGER.addHandler(handler)
+    ACTIVE_LOG_PATH = resolved_path
+    return resolved_path
+
+
+def _log_list(values: List[str]) -> str:
+    """Format a short list for structured-ish log messages."""
+    return ",".join(values) if values else "none"
+
+
+def _weekday_label(day: int) -> str:
+    """Return a readable weekday label for logs."""
+    labels = [
+        "Monday",
+        "Tuesday",
+        "Wednesday",
+        "Thursday",
+        "Friday",
+        "Saturday",
+        "Sunday",
+    ]
+    return labels[day] if 0 <= day < len(labels) else str(day)
 
 
 def load_rapidapi_key() -> str:
@@ -57,7 +116,12 @@ def load_rapidapi_key() -> str:
     )
 
 
-RAPIDAPI_KEY = load_rapidapi_key()
+try:
+    RAPIDAPI_KEY = load_rapidapi_key()
+except Exception:
+    configure_logging()
+    LOGGER.exception("event=startup_failed reason=rapidapi_key_load_failed")
+    raise
 
 COLES_HOST = "coles-product-price-api.p.rapidapi.com"
 WOOLIES_HOST = "woolworths-products-api.p.rapidapi.com"
@@ -152,6 +216,11 @@ def load_email_config() -> Tuple[Optional[str], Dict[str, Any]]:
 def _current_month_key() -> str:
     """Month bucket key (UTC) used to reset counters on rollover."""
     return datetime.now(UTC).strftime("%Y-%m")
+
+
+def _today_for_freshness() -> date:
+    """Return the local calendar date used for weekly freshness windows."""
+    return datetime.now().astimezone().date()
 
 
 def _coerce_limit_value(value: object) -> Optional[int]:
@@ -359,9 +428,7 @@ def _coerce_weekday(value: object, field_name: str, default: int) -> int:
     key = str(value).strip().lower()
     mapped = WEEKDAY_NAME_TO_INT.get(key)
     if mapped is None:
-        raise ValueError(
-            f"{field_name} must be a weekday name (e.g. Wednesday) or 0-6"
-        )
+        raise ValueError(f"{field_name} must be a weekday name (e.g. Wednesday) or 0-6")
     return mapped
 
 
@@ -428,10 +495,22 @@ def _save_vendor_specials_state(state: Dict[str, Dict[str, Any]]) -> None:
     """Persist per-vendor freshness state to config."""
     os.makedirs(os.path.dirname(VENDOR_SPECIALS_STATE_PATH), exist_ok=True)
     payload = {
-        "vendors": {store: state.get(store, _default_vendor_state()) for store in STORE_NAMES}
+        "vendors": {
+            store: state.get(store, _default_vendor_state()) for store in STORE_NAMES
+        }
     }
     with open(VENDOR_SPECIALS_STATE_PATH, "w", encoding="utf-8") as f:
         json.dump(payload, f, indent=2)
+
+
+def _mark_vendor_reports_sent(
+    state: Dict[str, Dict[str, Any]], vendors: List[str], today: date
+) -> None:
+    """Record a completed email send for the supplied vendors."""
+    for vendor in vendors:
+        vendor_state = state.setdefault(vendor, _default_vendor_state())
+        vendor_state["sent_this_cycle"] = True
+        vendor_state["last_sent_date"] = today.isoformat()
 
 
 def _load_specials_freshness_config() -> Dict[str, Any]:
@@ -497,7 +576,9 @@ def _resolve_vendor_schedule(
 ) -> VendorScheduleWindow:
     """Resolve effective start and force-send weekdays for one vendor."""
     vendors_cfg = config.get("vendors", {}) if isinstance(config, dict) else {}
-    default_cfg = vendors_cfg.get("default", {}) if isinstance(vendors_cfg, dict) else {}
+    default_cfg = (
+        vendors_cfg.get("default", {}) if isinstance(vendors_cfg, dict) else {}
+    )
     vendor_cfg = vendors_cfg.get(vendor, {}) if isinstance(vendors_cfg, dict) else {}
     start_day = _coerce_weekday(
         vendor_cfg.get("start_day", default_cfg.get("start_day")),
@@ -537,7 +618,8 @@ def _prepare_vendor_processing_plans(
             schedule.force_send_day,
         )
         already_completed = bool(
-            vendor_state.get("changed_this_cycle") and vendor_state.get("sent_this_cycle")
+            vendor_state.get("changed_this_cycle")
+            and vendor_state.get("sent_this_cycle")
         )
         plans[vendor] = VendorProcessingPlan(
             schedule=schedule,
@@ -724,7 +806,7 @@ def _prepend_preamble_html(html_report: str, preamble: str) -> str:
     prefix = f"<p>{html.escape(preamble_text)}</p>"
     opening = '<html><body style="font-family: Arial, sans-serif; color: #222;">'
     if html_report.startswith(opening):
-        return opening + prefix + html_report[len(opening):]
+        return opening + prefix + html_report[len(opening) :]
     return prefix + html_report
 
 
@@ -764,15 +846,14 @@ def _build_run_subject_and_preamble(
     vendor_modes: Dict[str, str],
 ) -> Tuple[str, str]:
     """Resolve subject/preamble for one run that may include multiple vendors."""
-    email_cfg_subject = str(
-        email_cfg.get("email_subject", "Weekly grocery specials report")
-    ).strip() or "Weekly grocery specials report"
+    email_cfg_subject = (
+        str(email_cfg.get("email_subject", "Weekly grocery specials report")).strip()
+        or "Weekly grocery specials report"
+    )
     email_cfg_preamble = str(email_cfg.get("email_preamble", "")).strip()
 
     freshness_email = (
-        freshness_config.get("email", {})
-        if isinstance(freshness_config, dict)
-        else {}
+        freshness_config.get("email", {}) if isinstance(freshness_config, dict) else {}
     )
     if not isinstance(freshness_email, dict):
         freshness_email = {}
@@ -796,8 +877,7 @@ def _build_run_subject_and_preamble(
         preamble = _render_template(
             freshness_email.get("mixed_preamble"),
             fallback=(
-                "This run contains mixed vendor freshness states: "
-                "{vendor_summary}."
+                "This run contains mixed vendor freshness states: " "{vendor_summary}."
             ),
             **context,
         )
@@ -2071,10 +2151,7 @@ def build_html_report(
                     if offer is watch_cheapest
                     else "border: 1px solid #ccc; padding: 8px; vertical-align: top;"
                 )
-                parts.append(
-                    f'<td style="{style}">'
-                    f"{cell}</td>"
-                )
+                parts.append(f'<td style="{style}">' f"{cell}</td>")
             parts.append("</tr>")
 
         parts.append("</tbody></table>")
@@ -2256,9 +2333,7 @@ def print_email_delivery_preview(deliveries: List[Dict[str, Any]]) -> None:
     print("[INFO] Email delivery preview:")
     for delivery in deliveries:
         print("")
-        print(
-            "[INFO] ------------------------------------------------------------"
-        )
+        print("[INFO] ------------------------------------------------------------")
         print(
             f"[INFO] Recipient #{delivery['recipient_index']}: "
             f"{delivery['recipient']}"
@@ -2269,10 +2344,7 @@ def print_email_delivery_preview(deliveries: List[Dict[str, Any]]) -> None:
             f"verbose={delivery['verbose']}, "
             f"report_calls={delivery['report_calls']}"
         )
-        print(
-            "[INFO] Watchlist items included: "
-            + ", ".join(delivery["watch_names"])
-        )
+        print("[INFO] Watchlist items included: " + ", ".join(delivery["watch_names"]))
         print("[INFO] Plain-text body preview:")
         print(delivery["report"])
 
@@ -2287,15 +2359,20 @@ def send_email_report(
     subject: str = "Weekly grocery specials report",
     html_report: Optional[str] = None,
     to_email: Optional[str] = None,
-):
+) -> bool:
     """Send the report via SMTP using the configured auth settings."""
+    configure_logging()
     email_config_path, cfg = load_email_config()
     if email_config_path is None:
         print(
             "[WARN] No email config found. Expected config/email_config.yaml "
             "or email_config.yaml; skipping email send."
         )
-        return
+        LOGGER.warning(
+            "event=email_send_skipped reason=no_email_config recipient=%s",
+            to_email or "unknown",
+        )
+        return False
 
     gmail_user = cfg["gmail_user"]
     auth_mode = str(cfg.get("auth_mode", "app_password")).strip().lower()
@@ -2320,6 +2397,14 @@ def send_email_report(
     smtp_use_tls = _coerce_bool(cfg.get("smtp_use_tls"), default=True)
     email_subject = resolve_email_subject(cfg, subject)
 
+    LOGGER.info(
+        "event=email_send_attempt recipient=%s subject=%r smtp_host=%s smtp_port=%s",
+        recipient,
+        email_subject,
+        smtp_host,
+        smtp_port,
+    )
+
     msg = EmailMessage()
     msg["Subject"] = email_subject
     msg["From"] = gmail_user
@@ -2329,12 +2414,31 @@ def send_email_report(
         msg.add_alternative(html_report, subtype="html")
 
     context = ssl.create_default_context() if smtp_use_tls else None
-    with smtplib.SMTP(smtp_host, smtp_port) as server:
-        if smtp_use_tls:
-            server.starttls(context=context)
-        server.login(gmail_user, gmail_password)
-        server.send_message(msg)
+    try:
+        with smtplib.SMTP(smtp_host, smtp_port) as server:
+            if smtp_use_tls:
+                server.starttls(context=context)
+            server.login(gmail_user, gmail_password)
+            server.send_message(msg)
+    except Exception:
+        LOGGER.exception(
+            "event=email_send_failed recipient=%s subject=%r smtp_host=%s smtp_port=%s",
+            recipient,
+            email_subject,
+            smtp_host,
+            smtp_port,
+        )
+        raise
+
     print(f"[INFO] Report emailed to {recipient}")
+    LOGGER.info(
+        "event=email_sent recipient=%s subject=%r smtp_host=%s smtp_port=%s",
+        recipient,
+        email_subject,
+        smtp_host,
+        smtp_port,
+    )
+    return True
 
 
 def build_email_test_report() -> str:
@@ -2482,20 +2586,63 @@ def main(
     watchlist_path: str = "watchlist.yaml",
 ):
     """Run the full flow: load watchlist, fetch offers, report, email."""
+    log_path = configure_logging()
+    run_started_at = datetime.now().astimezone()
+    LOGGER.info(
+        "event=checker_run_started started_at=%s watchlist=%s send_email=%s "
+        "testing_mode=%s log_file=%s",
+        run_started_at.isoformat(timespec="seconds"),
+        watchlist_path,
+        send_email,
+        testing_mode,
+        log_path,
+    )
     RUN_API_CALL_COUNT["Coles"] = 0
     RUN_API_CALL_COUNT["Woolworths"] = 0
     watchlist = load_watchlist(watchlist_path)
     freshness_config = _load_specials_freshness_config()
     vendor_state = _load_vendor_specials_state()
-    today = datetime.now(UTC).date()
+    today = _today_for_freshness()
+    LOGGER.info(
+        "event=freshness_date local_date=%s weekday=%s",
+        today.isoformat(),
+        today.strftime("%A"),
+    )
     vendor_plans = _prepare_vendor_processing_plans(
         freshness_config,
         vendor_state,
         today,
     )
+    for vendor, plan in vendor_plans.items():
+        state = vendor_state.setdefault(vendor, _default_vendor_state())
+        if plan.should_query:
+            plan_status = "scheduled"
+        elif not plan.within_window:
+            plan_status = "outside_window"
+        elif state.get("changed_this_cycle") and state.get("sent_this_cycle"):
+            plan_status = "already_sent_this_cycle"
+        else:
+            plan_status = "not_scheduled"
+        LOGGER.info(
+            "event=vendor_plan vendor=%s status=%s within_window=%s "
+            "should_query=%s start_day=%s force_send_day=%s cycle_anchor=%s "
+            "changed_this_cycle=%s sent_this_cycle=%s last_checked=%s last_sent=%s",
+            vendor,
+            plan_status,
+            plan.within_window,
+            plan.should_query,
+            _weekday_label(plan.schedule.start_day),
+            _weekday_label(plan.schedule.force_send_day),
+            state.get("cycle_anchor"),
+            state.get("changed_this_cycle"),
+            state.get("sent_this_cycle"),
+            state.get("last_checked_date"),
+            state.get("last_sent_date"),
+        )
     active_stores = {
         vendor for vendor, plan in vendor_plans.items() if plan.should_query
     }
+    LOGGER.info("event=active_vendors vendors=%s", _log_list(sorted(active_stores)))
     all_offers: Dict[str, List[Offer]] = {}
 
     limit_error: Optional[str] = None
@@ -2512,6 +2659,7 @@ def main(
         limit_error = str(exc)
         _record_limit_warning(limit_error)
         print(f"[ERROR] {limit_error}")
+        LOGGER.error("event=api_limit_exceeded message=%r", limit_error)
 
     _, email_cfg = load_email_config()
     recipients = get_email_recipients(email_cfg)
@@ -2521,18 +2669,36 @@ def main(
     for vendor in STORE_NAMES:
         plan = vendor_plans[vendor]
         if not plan.should_query:
+            state = vendor_state.setdefault(vendor, _default_vendor_state())
+            if not plan.within_window:
+                reason = "outside_window"
+            elif state.get("changed_this_cycle") and state.get("sent_this_cycle"):
+                reason = "already_sent_this_cycle"
+            else:
+                reason = "not_scheduled"
+            LOGGER.info(
+                "event=vendor_freshness vendor=%s freshness=skipped reason=%s",
+                vendor,
+                reason,
+            )
             continue
 
         vendor_watch_names = {
             watch_item.name for watch_item in watchlist if vendor in watch_item.stores
         }
         if not vendor_watch_names:
+            LOGGER.info(
+                "event=vendor_freshness vendor=%s freshness=skipped "
+                "reason=no_watchlist_items",
+                vendor,
+            )
             continue
         vendor_offers = _build_vendor_offers_view(
             all_offers,
             vendor,
             allowed_watch_names=vendor_watch_names,
         )
+        vendor_offer_count = sum(len(offers) for offers in vendor_offers.values())
         current_hash = _vendor_offer_signature(vendor_offers)
         state = vendor_state.setdefault(vendor, _default_vendor_state())
         state["last_checked_date"] = today.isoformat()
@@ -2544,10 +2710,33 @@ def main(
             state["last_known_hash"] = current_hash
             state["last_known_payload"] = _snapshot_vendor_offers(vendor_offers)
             vendor_send_modes[vendor] = "success"
+            LOGGER.info(
+                "event=vendor_freshness vendor=%s freshness=fresh send_mode=success "
+                "watch_items=%s offers=%s",
+                vendor,
+                len(vendor_watch_names),
+                vendor_offer_count,
+            )
             continue
 
         if today.weekday() == plan.schedule.force_send_day:
             vendor_send_modes[vendor] = "forced_send"
+            LOGGER.info(
+                "event=vendor_freshness vendor=%s freshness=stale "
+                "send_mode=forced_send watch_items=%s offers=%s",
+                vendor,
+                len(vendor_watch_names),
+                vendor_offer_count,
+            )
+        else:
+            LOGGER.info(
+                "event=vendor_freshness vendor=%s freshness=stale "
+                "send_mode=retry_later watch_items=%s offers=%s force_send_day=%s",
+                vendor,
+                len(vendor_watch_names),
+                vendor_offer_count,
+                _weekday_label(plan.schedule.force_send_day),
+            )
 
     deliveries: List[Dict[str, Any]] = []
     due_vendors = sorted(vendor_send_modes.keys())
@@ -2612,19 +2801,30 @@ def main(
                 preamble,
             )
 
-        for vendor in due_vendors:
-            vendor_state[vendor]["sent_this_cycle"] = True
-            vendor_state[vendor]["last_sent_date"] = today.isoformat()
-
-    _save_vendor_specials_state(vendor_state)
+        LOGGER.info(
+            "event=email_deliveries_built count=%s due_vendors=%s recipients=%s",
+            len(deliveries),
+            _log_list(due_vendors),
+            _log_list([delivery["recipient"] for delivery in deliveries]),
+        )
 
     if deliveries:
         print(deliveries[0]["report"])
     else:
         print("[INFO] No vendor reports due today based on freshness state.")
+        LOGGER.info("event=no_vendor_reports_due local_date=%s", today.isoformat())
 
     if testing_mode:
-        print("[INFO] Testing mode: email send skipped.")
+        print(
+            "[INFO] Testing mode: email send skipped; vendor reports remain "
+            "unsent for retry."
+        )
+        for delivery in deliveries:
+            LOGGER.info(
+                "event=email_send_skipped reason=testing recipient=%s subject=%r",
+                delivery["recipient"],
+                delivery["subject"],
+            )
         print_email_delivery_preview(deliveries)
         print(
             "[INFO] API calls this run - Coles: "
@@ -2644,13 +2844,58 @@ def main(
                 print(f"  - {msg}")
 
     if send_email and not testing_mode and deliveries:
-        for delivery in deliveries:
-            send_email_report(
-                delivery["report"],
-                subject=delivery["subject"],
-                html_report=delivery["html_report"],
-                to_email=delivery["recipient"],
+        all_deliveries_sent = True
+        try:
+            for delivery in deliveries:
+                delivery_sent = send_email_report(
+                    delivery["report"],
+                    subject=delivery["subject"],
+                    html_report=delivery["html_report"],
+                    to_email=delivery["recipient"],
+                )
+                all_deliveries_sent = delivery_sent and all_deliveries_sent
+        except Exception:
+            _save_vendor_specials_state(vendor_state)
+            raise
+
+        if all_deliveries_sent:
+            _mark_vendor_reports_sent(vendor_state, due_vendors, today)
+            LOGGER.info(
+                "event=vendor_reports_marked_sent vendors=%s sent_date=%s",
+                _log_list(due_vendors),
+                today.isoformat(),
             )
+        else:
+            print(
+                "[WARN] Email delivery did not complete; vendor reports remain "
+                "unsent for retry."
+            )
+            LOGGER.warning(
+                "event=email_delivery_incomplete due_vendors=%s",
+                _log_list(due_vendors),
+            )
+    elif due_vendors and deliveries and not testing_mode:
+        print("[INFO] Email send disabled; vendor reports remain unsent for retry.")
+        for delivery in deliveries:
+            LOGGER.info(
+                "event=email_send_skipped reason=send_email_disabled "
+                "recipient=%s subject=%r",
+                delivery["recipient"],
+                delivery["subject"],
+            )
+
+    _save_vendor_specials_state(vendor_state)
+    duration_seconds = (datetime.now().astimezone() - run_started_at).total_seconds()
+    LOGGER.info(
+        "event=checker_run_finished local_date=%s due_vendors=%s deliveries=%s "
+        "api_calls_coles=%s api_calls_woolworths=%s duration_seconds=%.1f",
+        today.isoformat(),
+        _log_list(due_vendors),
+        len(deliveries),
+        RUN_API_CALL_COUNT.get("Coles", 0),
+        RUN_API_CALL_COUNT.get("Woolworths", 0),
+        duration_seconds,
+    )
 
 
 if __name__ == "__main__":
@@ -2690,48 +2935,84 @@ if __name__ == "__main__":
         default="watchlist.yaml",
         help="Path to the watchlist YAML file (default: watchlist.yaml).",
     )
+    parser.add_argument(
+        "--log-file",
+        default=LOG_PATH,
+        help=f"Path to the run log file (default: {LOG_PATH}).",
+    )
 
     args = parser.parse_args()
 
-    if args.test_email:
-        _, email_cfg = load_email_config()
-        recipients = get_email_recipients(email_cfg)
-        for recipient_index, recipient in enumerate(recipients or [None]):
-            api_calls_footer = (
-                build_api_calls_footer()
-                if get_email_bool_option(
-                    email_cfg,
-                    "report_calls",
-                    recipient_index,
-                    default=False,
-                )
-                else None
+    log_path = configure_logging(args.log_file)
+    LOGGER.info(
+        "event=process_started command=%r log_file=%s",
+        " ".join(sys.argv),
+        log_path,
+    )
+
+    try:
+        if args.test_email:
+            _, email_cfg = load_email_config()
+            recipients = get_email_recipients(email_cfg)
+            LOGGER.info(
+                "event=test_email_started recipients=%s",
+                _log_list(recipients),
             )
-            send_email_report(
-                append_api_calls_footer(
-                    build_email_test_report(),
-                    api_calls_footer,
-                ),
-                subject=str(
-                    email_cfg.get(
-                        "email_test_subject",
-                        "Email test - grocery specials checker",
+            for recipient_index, recipient in enumerate(recipients or [None]):
+                api_calls_footer = (
+                    build_api_calls_footer()
+                    if get_email_bool_option(
+                        email_cfg,
+                        "report_calls",
+                        recipient_index,
+                        default=False,
                     )
-                ),
-                html_report=append_api_calls_footer_html(
-                    build_email_test_html_report(),
-                    api_calls_footer,
-                ),
-                to_email=recipient,
+                    else None
+                )
+                send_email_report(
+                    append_api_calls_footer(
+                        build_email_test_report(),
+                        api_calls_footer,
+                    ),
+                    subject=str(
+                        email_cfg.get(
+                            "email_test_subject",
+                            "Email test - grocery specials checker",
+                        )
+                    ),
+                    html_report=append_api_calls_footer_html(
+                        build_email_test_html_report(),
+                        api_calls_footer,
+                    ),
+                    to_email=recipient,
+                )
+            LOGGER.info(
+                "event=test_email_finished recipients=%s",
+                _log_list(recipients),
             )
-    elif args.test_coles:
-        run_test_coles(args.test_coles)
-    elif args.test_woolies:
-        run_test_woolies(args.test_woolies)
+        elif args.test_coles:
+            LOGGER.info(
+                "event=api_probe_started vendor=Coles keyword=%r",
+                args.test_coles,
+            )
+            run_test_coles(args.test_coles)
+            LOGGER.info("event=api_probe_finished vendor=Coles")
+        elif args.test_woolies:
+            LOGGER.info(
+                "event=api_probe_started vendor=Woolworths keyword=%r",
+                args.test_woolies,
+            )
+            run_test_woolies(args.test_woolies)
+            LOGGER.info("event=api_probe_finished vendor=Woolworths")
+        else:
+            suppress_email = args.no_email or args.testing
+            main(
+                send_email=not suppress_email,
+                testing_mode=args.testing,
+                watchlist_path=args.watchlist,
+            )
+    except Exception:
+        LOGGER.exception("event=process_failed")
+        raise
     else:
-        suppress_email = args.no_email or args.testing
-        main(
-            send_email=not suppress_email,
-            testing_mode=args.testing,
-            watchlist_path=args.watchlist,
-        )
+        LOGGER.info("event=process_finished")

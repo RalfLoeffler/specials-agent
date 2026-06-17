@@ -1,10 +1,16 @@
 [tool.black]
 line-length = 88
 target-version = ["py313"]
+extend-exclude = '''
+^/abandoned/
+'''
 
 [tool.ruff]
 line-length = 88
 target-version = "py313"
+exclude = [
+  "abandoned",
+]
 
 [tool.ruff.lint]
 select = [
