@@ -1,0 +1,19 @@
+# Project-local Codex configuration for a typical Python repository.
+#
+# Model and reasoning settings are intentionally omitted. Each subagent inherits
+# the model/provider selected by the parent Codex session. This is important for
+# local Ollama profiles such as qwen3-coder-30b-64k, which do not support the
+# Codex "thinking" parameter.
+
+[agents]
+enabled = true
+
+# The workstation profile this kit was designed for has 20 GB VRAM and 128 GB
+# system RAM. Two subagent threads provide useful parallelism without inviting
+# excessive context-cache growth. Reduce this to 1 if Ollama becomes slow or
+# starts offloading heavily to CPU. Increase only after measuring with
+# `ollama ps` and `nvidia-smi`.
+max_concurrent_threads_per_session = 2
+
+# Keep the parent informed when a child turn is interrupted.
+interrupt_message = true
