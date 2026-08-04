@@ -434,6 +434,9 @@ python src/specials_checker.py --no-email
 # Run the full checker and send email
 python src/specials_checker.py
 
+# Run the focused freshness regression tests
+python -m unittest tests.test_freshness -v
+
 # Use a custom app log path
 python src/specials_checker.py --log-file logs/specials_checker.log
 
@@ -629,6 +632,59 @@ Freshness behaviour:
 - if one vendor updates later in the cycle after the other already updated,
   the comparison includes both vendors using persisted up-to-date data without
   extra API calls.
+
+Freshness comparison ground truth:
+
+- A vendor's weekly cycle starts on its configured `start_day`, evaluated from
+  the local calendar date of the machine running the checker. At that cycle
+  start, the vendor's last successfully delivered snapshot becomes the fixed
+  reference snapshot for the whole cycle. Wednesday-to-Saturday retries keep
+  comparing against that cycle-start reference; a retry does not replace it.
+- When a non-empty reference snapshot exists, freshness compares current prices
+  only for products that were present in that prior reference snapshot. Products found
+  only in the current API response, or current products that cannot be matched
+  to a reference product, are ignored for freshness by themselves. A reference
+  product missing from the current response is treated as having no current
+  price and therefore does count as a change.
+- Matching is per watch item. A normalized barcode is preferred. If the
+  reference product has a barcode, the current product must have the same
+  barcode; a different or missing barcode is not details-matched. If the
+  reference product has no barcode, matching falls back to normalized product
+  title, brand, and size details, including when the current response newly
+  supplies a barcode.
+- Coles barcode data is read from its barcode, GTIN, and EAN field variants
+  (including the API's product-barcode variants). Woolworths barcode data is
+  read from its barcode and GTIN variants. Both are normalized before matching
+  and are retained for verbose reports.
+
+Pending snapshots and delivery promotion:
+
+- A detected change is stored as a pending current snapshot and made eligible
+  for a report, while the last-known delivered snapshot remains the reference
+  ground truth.
+- If a vendor has a pending snapshot while the other vendor is due, the
+  combined report uses that pending snapshot so the comparison does not fall
+  back to older delivered data.
+- Only after every intended recipient delivery succeeds are the due vendors'
+  current snapshots promoted to last-known state, marked sent for the cycle,
+  and cleared from pending state. Failed, partial, missing, or disabled email
+  delivery leaves them pending and eligible for a later retry.
+
+Vendor API failures and incomplete pages:
+
+- A query failure, API-limit failure, or incomplete/malformed product page marks
+  that vendor's results as failed for the run. That vendor is skipped for
+  freshness comparison, reporting, and state promotion; the other vendor can
+  continue independently. The failed vendor is retried on its next scheduled
+  run.
+
+Testing and no-email retries:
+
+- `--testing` builds and prints the normal report plus per-recipient previews,
+  but never sends email or marks a vendor as sent.
+- `--no-email` runs the normal checking flow without sending email or marking a
+  vendor as sent. Both modes therefore leave due/pending snapshots available
+  for a later real-delivery retry.
 
 Mixed subject/preamble placeholders:
 

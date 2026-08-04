@@ -12,9 +12,21 @@ exclude = [
   "abandoned",
 ]
 
+[tool.jupytext]
+formats = "ipynb,py:percent"
+notebook_metadata_filter = "-all"
+cell_metadata_filter = "-all"
+
 [tool.ruff.lint]
 select = [
-  "E",
-  "F",
-  "I",
+    "E",  # pycodestyle errors
+    "F",  # pyflakes
+    "I",  # isort
+    "UP", # pyupgrade
+    "B",  # flake8-bugbear
 ]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"

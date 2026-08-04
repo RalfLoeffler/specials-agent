@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from email.message import EmailMessage
 from logging.handlers import RotatingFileHandler
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 import requests
@@ -42,7 +42,7 @@ LOG_PATH = os.path.join("logs", "specials_checker.log")
 LOG_MAX_BYTES = 1_000_000
 LOG_BACKUP_COUNT = 5
 LOGGER = logging.getLogger("specials_checker")
-ACTIVE_LOG_PATH: Optional[str] = None
+ACTIVE_LOG_PATH: str | None = None
 
 
 def configure_logging(log_path: str = LOG_PATH) -> str:
@@ -77,7 +77,7 @@ def configure_logging(log_path: str = LOG_PATH) -> str:
     return resolved_path
 
 
-def _log_list(values: List[str]) -> str:
+def _log_list(values: list[str]) -> str:
     """Format a short list for structured-ish log messages."""
     return ",".join(values) if values else "none"
 
@@ -104,7 +104,7 @@ def load_rapidapi_key() -> str:
 
     secrets_path = os.path.join("config", "secrets.yaml")
     if os.path.exists(secrets_path):
-        with open(secrets_path, "r", encoding="utf-8") as f:
+        with open(secrets_path, encoding="utf-8") as f:
             secrets = yaml.safe_load(f) or {}
         file_key = secrets.get("rapidapi_key", "")
         if file_key:
@@ -132,7 +132,7 @@ WOOLIES_PRODUCT_SEARCH_URL = f"https://{WOOLIES_HOST}/woolworths/product-search/
 BASE_HEADERS = {
     "X-RapidAPI-Key": RAPIDAPI_KEY,
 }
-SEARCH_RESPONSE_CACHE: Dict[Tuple[str, str, int, int], dict] = {}
+SEARCH_RESPONSE_CACHE: dict[tuple[str, str, int, int], dict] = {}
 
 API_USAGE_PATH = os.path.join("config", "api_usage.json")
 SPECIALS_FRESHNESS_CONFIG_PATH = os.path.join("config", "specials_freshness.yaml")
@@ -141,16 +141,17 @@ EMAIL_CONFIG_PATHS = [
     os.path.join("config", "email_config.yaml"),
     "email_config.yaml",
 ]
-API_CALL_COUNT: Dict[str, int] = {
+API_CALL_COUNT: dict[str, int] = {
     "Coles": 0,
     "Woolworths": 0,
 }
-RUN_API_CALL_COUNT: Dict[str, int] = {
+RUN_API_CALL_COUNT: dict[str, int] = {
     "Coles": 0,
     "Woolworths": 0,
 }
+FAILED_VENDOR_QUERIES: set[str] = set()
 
-LIMIT_WARNINGS: List[str] = []
+LIMIT_WARNINGS: list[str] = []
 STORE_NAMES = ("Coles", "Woolworths")
 WEEKDAY_NAME_TO_INT = {
     "monday": 0,
@@ -190,7 +191,7 @@ class APILimitExceeded(Exception):
     """Raised when a store's hard API limit is reached."""
 
 
-def resolve_email_config_path() -> Optional[str]:
+def resolve_email_config_path() -> str | None:
     """Return the preferred existing email config path, if any."""
     for path in EMAIL_CONFIG_PATHS:
         if os.path.exists(path):
@@ -198,13 +199,13 @@ def resolve_email_config_path() -> Optional[str]:
     return None
 
 
-def load_email_config() -> Tuple[Optional[str], Dict[str, Any]]:
+def load_email_config() -> tuple[str | None, dict[str, Any]]:
     """Load the email config file, returning its path and parsed mapping."""
     email_config_path = resolve_email_config_path()
     if email_config_path is None:
         return None, {}
 
-    with open(email_config_path, "r", encoding="utf-8") as f:
+    with open(email_config_path, encoding="utf-8") as f:
         cfg = yaml.safe_load(f) or {}
 
     if not isinstance(cfg, dict):
@@ -223,7 +224,7 @@ def _today_for_freshness() -> date:
     return datetime.now().astimezone().date()
 
 
-def _coerce_limit_value(value: object) -> Optional[int]:
+def _coerce_limit_value(value: object) -> int | None:
     """Best-effort int conversion; returns None on invalid input."""
     try:
         return int(value) if value is not None else None
@@ -232,8 +233,8 @@ def _coerce_limit_value(value: object) -> Optional[int]:
 
 
 def _merge_limit(
-    base: Dict[str, Optional[int]], override: object
-) -> Dict[str, Optional[int]]:
+    base: dict[str, int | None], override: object
+) -> dict[str, int | None]:
     """Merge warn/hard limit overrides into a base mapping."""
     if not isinstance(override, dict):
         return dict(base)
@@ -248,9 +249,9 @@ def _merge_limit(
     return merged
 
 
-def load_limit_config() -> Dict[str, Dict[str, Optional[int]]]:
+def load_limit_config() -> dict[str, dict[str, int | None]]:
     """Load per-store warn/hard limits from limits.yaml or watchlist.yaml."""
-    limits: Dict[str, Dict[str, Optional[int]]] = {
+    limits: dict[str, dict[str, int | None]] = {
         "Coles": {"warn": None, "hard": None},
         "Woolworths": {"warn": None, "hard": None},
     }
@@ -264,7 +265,7 @@ def load_limit_config() -> Dict[str, Dict[str, Optional[int]]]:
         if not os.path.exists(path):
             continue
 
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             raw = yaml.safe_load(f) or {}
 
         api_limits = raw.get("api_limits") if isinstance(raw, dict) else None
@@ -294,7 +295,7 @@ def _ensure_usage_dir():
         os.makedirs(usage_dir, exist_ok=True)
 
 
-def load_api_usage_state() -> Dict[str, object]:
+def load_api_usage_state() -> dict[str, object]:
     """Load persisted monthly API counts, resetting on month change."""
     month_key = _current_month_key()
     default_state = {
@@ -309,7 +310,7 @@ def load_api_usage_state() -> Dict[str, object]:
         return default_state
 
     try:
-        with open(API_USAGE_PATH, "r", encoding="utf-8") as f:
+        with open(API_USAGE_PATH, encoding="utf-8") as f:
             data = json.load(f)
     except Exception:
         return default_state
@@ -361,7 +362,7 @@ def _record_limit_warning(message: str):
         LIMIT_WARNINGS.append(message)
 
 
-def _limits_for_store(store: str) -> Dict[str, Optional[int]]:
+def _limits_for_store(store: str) -> dict[str, int | None]:
     """Return warn/hard limits for a store, with None if unset."""
     return LIMIT_CONFIG.get(store, {"warn": None, "hard": None})
 
@@ -402,7 +403,7 @@ def _record_api_call(store: str):
     _maybe_warn_limit(store)
 
 
-def _normalise_vendor_key(value: object) -> Optional[str]:
+def _normalise_vendor_key(value: object) -> str | None:
     """Normalise config keys like 'coles' and 'woolies' to store names."""
     if value is None:
         return None
@@ -449,13 +450,16 @@ def _cycle_anchor_for_day(today: date, start_day: int) -> date:
     return today - timedelta(days=(today.weekday() - start_day) % 7)
 
 
-def _default_vendor_state() -> Dict[str, Any]:
+def _default_vendor_state() -> dict[str, Any]:
     """Create a blank persisted state payload for one vendor."""
     return {
         "cycle_anchor": None,
         "reference_hash": None,
+        "reference_payload": {},
         "last_known_hash": None,
         "last_known_payload": {},
+        "pending_hash": None,
+        "pending_payload": {},
         "changed_this_cycle": False,
         "sent_this_cycle": False,
         "last_checked_date": None,
@@ -463,16 +467,16 @@ def _default_vendor_state() -> Dict[str, Any]:
     }
 
 
-def _load_vendor_specials_state() -> Dict[str, Dict[str, Any]]:
+def _load_vendor_specials_state() -> dict[str, dict[str, Any]]:
     """Load persisted per-vendor freshness state from config."""
-    state: Dict[str, Dict[str, Any]] = {
+    state: dict[str, dict[str, Any]] = {
         store: _default_vendor_state() for store in STORE_NAMES
     }
     if not os.path.exists(VENDOR_SPECIALS_STATE_PATH):
         return state
 
     try:
-        with open(VENDOR_SPECIALS_STATE_PATH, "r", encoding="utf-8") as f:
+        with open(VENDOR_SPECIALS_STATE_PATH, encoding="utf-8") as f:
             raw = json.load(f)
     except Exception:
         return state
@@ -487,11 +491,13 @@ def _load_vendor_specials_state() -> Dict[str, Dict[str, Any]]:
             continue
         merged = _default_vendor_state()
         merged.update(vendor_payload)
+        if "reference_payload" not in vendor_payload:
+            merged["reference_payload"] = merged.get("last_known_payload", {})
         state[vendor] = merged
     return state
 
 
-def _save_vendor_specials_state(state: Dict[str, Dict[str, Any]]) -> None:
+def _save_vendor_specials_state(state: dict[str, dict[str, Any]]) -> None:
     """Persist per-vendor freshness state to config."""
     os.makedirs(os.path.dirname(VENDOR_SPECIALS_STATE_PATH), exist_ok=True)
     payload = {
@@ -504,7 +510,7 @@ def _save_vendor_specials_state(state: Dict[str, Dict[str, Any]]) -> None:
 
 
 def _mark_vendor_reports_sent(
-    state: Dict[str, Dict[str, Any]], vendors: List[str], today: date
+    state: dict[str, dict[str, Any]], vendors: list[str], today: date
 ) -> None:
     """Record a completed email send for the supplied vendors."""
     for vendor in vendors:
@@ -513,7 +519,7 @@ def _mark_vendor_reports_sent(
         vendor_state["last_sent_date"] = today.isoformat()
 
 
-def _load_specials_freshness_config() -> Dict[str, Any]:
+def _load_specials_freshness_config() -> dict[str, Any]:
     """Load optional config controlling freshness schedules and email text."""
     defaults = {
         "vendors": {
@@ -540,7 +546,7 @@ def _load_specials_freshness_config() -> Dict[str, Any]:
     if not os.path.exists(SPECIALS_FRESHNESS_CONFIG_PATH):
         return defaults
 
-    with open(SPECIALS_FRESHNESS_CONFIG_PATH, "r", encoding="utf-8") as f:
+    with open(SPECIALS_FRESHNESS_CONFIG_PATH, encoding="utf-8") as f:
         raw = yaml.safe_load(f) or {}
 
     if not isinstance(raw, dict):
@@ -571,7 +577,7 @@ def _load_specials_freshness_config() -> Dict[str, Any]:
 
 
 def _resolve_vendor_schedule(
-    config: Dict[str, Any],
+    config: dict[str, Any],
     vendor: str,
 ) -> VendorScheduleWindow:
     """Resolve effective start and force-send weekdays for one vendor."""
@@ -594,12 +600,12 @@ def _resolve_vendor_schedule(
 
 
 def _prepare_vendor_processing_plans(
-    freshness_config: Dict[str, Any],
-    state: Dict[str, Dict[str, Any]],
+    freshness_config: dict[str, Any],
+    state: dict[str, dict[str, Any]],
     today: date,
-) -> Dict[str, VendorProcessingPlan]:
+) -> dict[str, VendorProcessingPlan]:
     """Build per-vendor query plans, resetting cycle state when required."""
-    plans: Dict[str, VendorProcessingPlan] = {}
+    plans: dict[str, VendorProcessingPlan] = {}
     for vendor in STORE_NAMES:
         vendor_state = state.setdefault(vendor, _default_vendor_state())
         schedule = _resolve_vendor_schedule(freshness_config, vendor)
@@ -609,6 +615,9 @@ def _prepare_vendor_processing_plans(
         if vendor_state.get("cycle_anchor") != anchor_key:
             vendor_state["cycle_anchor"] = anchor_key
             vendor_state["reference_hash"] = vendor_state.get("last_known_hash")
+            vendor_state["reference_payload"] = vendor_state.get(
+                "last_known_payload", {}
+            )
             vendor_state["changed_this_cycle"] = False
             vendor_state["sent_this_cycle"] = False
 
@@ -631,12 +640,12 @@ def _prepare_vendor_processing_plans(
 
 
 def _build_vendor_offers_view(
-    all_offers: Dict[str, List[Offer]],
+    all_offers: dict[str, list[Offer]],
     vendor: str,
-    allowed_watch_names: Optional[set[str]] = None,
-) -> Dict[str, List[Offer]]:
+    allowed_watch_names: set[str] | None = None,
+) -> dict[str, list[Offer]]:
     """Return offers filtered to one vendor while preserving watchlist keys."""
-    filtered: Dict[str, List[Offer]] = {}
+    filtered: dict[str, list[Offer]] = {}
     for watch_name, offers in all_offers.items():
         if allowed_watch_names is not None and watch_name not in allowed_watch_names:
             continue
@@ -644,7 +653,7 @@ def _build_vendor_offers_view(
     return filtered
 
 
-def _serialise_offer_for_state(offer: Offer) -> Dict[str, Any]:
+def _serialise_offer_for_state(offer: Offer) -> dict[str, Any]:
     """Convert an Offer to a JSON-safe payload for persistence."""
     return {
         "watch_name": offer.watch_name,
@@ -662,7 +671,7 @@ def _serialise_offer_for_state(offer: Offer) -> Dict[str, Any]:
     }
 
 
-def _deserialise_offer_from_state(payload: Dict[str, Any]) -> Offer:
+def _deserialise_offer_from_state(payload: dict[str, Any]) -> Offer:
     """Convert persisted offer payload back into an Offer instance."""
     return Offer(
         watch_name=str(payload.get("watch_name", "")),
@@ -678,24 +687,24 @@ def _deserialise_offer_from_state(payload: Dict[str, Any]) -> Offer:
     )
 
 
-def _snapshot_vendor_offers(vendor_offers: Dict[str, List[Offer]]) -> Dict[str, Any]:
+def _snapshot_vendor_offers(vendor_offers: dict[str, list[Offer]]) -> dict[str, Any]:
     """Build persisted state payload for one vendor's watch-item offers."""
-    snapshot: Dict[str, Any] = {}
+    snapshot: dict[str, Any] = {}
     for watch_name, offers in vendor_offers.items():
         snapshot[watch_name] = [_serialise_offer_for_state(offer) for offer in offers]
     return snapshot
 
 
-def _restore_vendor_offers(snapshot: object) -> Dict[str, List[Offer]]:
+def _restore_vendor_offers(snapshot: object) -> dict[str, list[Offer]]:
     """Restore persisted vendor offers payload into Offer objects."""
     if not isinstance(snapshot, dict):
         return {}
 
-    restored: Dict[str, List[Offer]] = {}
+    restored: dict[str, list[Offer]] = {}
     for watch_name, offer_items in snapshot.items():
         if not isinstance(offer_items, list):
             continue
-        offers: List[Offer] = []
+        offers: list[Offer] = []
         for raw in offer_items:
             if not isinstance(raw, dict):
                 continue
@@ -707,10 +716,10 @@ def _restore_vendor_offers(snapshot: object) -> Dict[str, List[Offer]]:
     return restored
 
 
-def _vendor_offer_signature(vendor_offers: Dict[str, List[Offer]]) -> str:
+def _vendor_offer_signature(vendor_offers: dict[str, list[Offer]]) -> str:
     """Build a stable checksum used to detect specials changes per vendor."""
 
-    def _normalise_url_for_signature(value: Optional[str]) -> str:
+    def _normalise_url_for_signature(value: str | None) -> str:
         """Normalize URLs so tracking query strings do not affect checksums."""
         raw = (value or "").strip()
         if not raw:
@@ -738,10 +747,10 @@ def _vendor_offer_signature(vendor_offers: Dict[str, List[Offer]]) -> str:
             )
         )
 
-    payload: List[Dict[str, Any]] = []
+    payload: list[dict[str, Any]] = []
     for watch_name in sorted(vendor_offers.keys()):
         offers = vendor_offers[watch_name]
-        serialised_offers: List[Dict[str, Any]] = []
+        serialised_offers: list[dict[str, Any]] = []
         for offer in sorted(
             offers,
             key=lambda item: (
@@ -772,6 +781,89 @@ def _vendor_offer_signature(vendor_offers: Dict[str, List[Offer]]) -> str:
                 }
             )
         payload.append({"watch_name": watch_name, "offers": serialised_offers})
+
+    raw = json.dumps(payload, sort_keys=True, ensure_ascii=True)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _offer_freshness_identity(offer: Offer) -> tuple[str, ...]:
+    """Return the details-based product identity used by freshness checks."""
+    return (
+        "details",
+        _normalise_match_text(offer.product_title),
+        _normalise_match_text(offer.brand),
+        _normalise_match_text(offer.size),
+    )
+
+
+def _offer_freshness_barcode(offer: Offer) -> str | None:
+    """Return a normalized barcode when the API provided one."""
+    barcode = (offer.barcode or "").strip().lower()
+    return barcode or None
+
+
+def _offer_freshness_sort_key(offer: Offer) -> tuple[object, ...]:
+    """Return a deterministic key for otherwise ambiguous product matches."""
+    barcode = _offer_freshness_barcode(offer)
+    return (
+        _offer_freshness_identity(offer),
+        0 if barcode is None else 1,
+        round(offer.price, 2),
+        barcode or "",
+        (offer.url or "").strip().lower(),
+    )
+
+
+def _vendor_offer_price_signature(
+    vendor_offers: dict[str, list[Offer]],
+    reference_offers: dict[str, list[Offer]],
+) -> str:
+    """Checksum prices for products present in the previous vendor snapshot."""
+    payload: list[dict[str, Any]] = []
+    for watch_name in sorted(reference_offers.keys()):
+        unmatched_current = sorted(
+            vendor_offers.get(watch_name, []), key=_offer_freshness_sort_key
+        )
+        reference_items = sorted(
+            reference_offers[watch_name],
+            key=_offer_freshness_sort_key,
+        )
+        for offer in reference_items:
+            identity = _offer_freshness_identity(offer)
+            barcode = _offer_freshness_barcode(offer)
+            match_index = None
+            if barcode:
+                match_index = next(
+                    (
+                        index
+                        for index, current_offer in enumerate(unmatched_current)
+                        if _offer_freshness_barcode(current_offer) == barcode
+                    ),
+                    None,
+                )
+            if match_index is None:
+                match_index = next(
+                    (
+                        index
+                        for index, current_offer in enumerate(unmatched_current)
+                        if _offer_freshness_identity(current_offer) == identity
+                        and (
+                            barcode is None
+                            or _offer_freshness_barcode(current_offer) is None
+                        )
+                    ),
+                    None,
+                )
+            prices = []
+            if match_index is not None:
+                prices = [round(unmatched_current.pop(match_index).price, 2)]
+            payload.append(
+                {
+                    "watch_name": watch_name,
+                    "identity": identity,
+                    "prices": sorted(prices),
+                }
+            )
 
     raw = json.dumps(payload, sort_keys=True, ensure_ascii=True)
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
@@ -810,7 +902,7 @@ def _prepend_preamble_html(html_report: str, preamble: str) -> str:
     return prefix + html_report
 
 
-def _format_vendor_list(vendors: List[str]) -> str:
+def _format_vendor_list(vendors: list[str]) -> str:
     """Format vendor names for subject/preamble placeholders."""
     if not vendors:
         return ""
@@ -831,7 +923,7 @@ def _status_label(mode: str) -> str:
     return labels.get(mode, mode)
 
 
-def _build_vendor_mode_summary(vendor_modes: Dict[str, str]) -> str:
+def _build_vendor_mode_summary(vendor_modes: dict[str, str]) -> str:
     """Return a compact human-readable per-vendor mode summary."""
     parts = [
         f"{vendor}: {_status_label(mode)}"
@@ -841,10 +933,10 @@ def _build_vendor_mode_summary(vendor_modes: Dict[str, str]) -> str:
 
 
 def _build_run_subject_and_preamble(
-    email_cfg: Dict[str, Any],
-    freshness_config: Dict[str, Any],
-    vendor_modes: Dict[str, str],
-) -> Tuple[str, str]:
+    email_cfg: dict[str, Any],
+    freshness_config: dict[str, Any],
+    vendor_modes: dict[str, str],
+) -> tuple[str, str]:
     """Resolve subject/preamble for one run that may include multiple vendors."""
     email_cfg_subject = (
         str(email_cfg.get("email_subject", "Weekly grocery specials report")).strip()
@@ -877,7 +969,7 @@ def _build_run_subject_and_preamble(
         preamble = _render_template(
             freshness_email.get("mixed_preamble"),
             fallback=(
-                "This run contains mixed vendor freshness states: " "{vendor_summary}."
+                "This run contains mixed vendor freshness states: {vendor_summary}."
             ),
             **context,
         )
@@ -939,21 +1031,21 @@ def _build_run_subject_and_preamble(
 @dataclass
 class WatchItem:
     name: str
-    match_keywords: List[str]
-    include_keywords: List[str]
-    exclude_keywords: List[str]
-    stores: List[str]
+    match_keywords: list[str]
+    include_keywords: list[str]
+    exclude_keywords: list[str]
+    stores: list[str]
     include_unknown_half_price: bool = True
     only_half_price: bool = False
-    email_indices: Optional[List[int]] = None
-    price_range: Optional[str] = None
-    size_range: Optional[str] = None
+    email_indices: list[int] | None = None
+    price_range: str | None = None
+    size_range: str | None = None
 
 
 @dataclass
 class NumericFilter:
-    minimum: Optional[float] = None
-    maximum: Optional[float] = None
+    minimum: float | None = None
+    maximum: float | None = None
     include_minimum: bool = True
     include_maximum: bool = True
 
@@ -963,12 +1055,12 @@ class Offer:
     watch_name: str
     store: str
     product_title: str
-    brand: Optional[str]
+    brand: str | None
     price: float
-    size: Optional[str]
+    size: str | None
     url: str
-    barcode: Optional[str] = None
-    was_price: Optional[float] = None
+    barcode: str | None = None
+    was_price: float | None = None
     is_half_price: bool = False
 
 
@@ -977,13 +1069,13 @@ class Offer:
 # =========================
 
 
-def load_watchlist(path: str = "watchlist.yaml") -> List[WatchItem]:
+def load_watchlist(path: str = "watchlist.yaml") -> list[WatchItem]:
     """Load watch items from YAML into WatchItem objects."""
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         data = yaml.safe_load(f) or {}
 
     raw_items = data.get("items", []) if isinstance(data, dict) else []
-    items: List[WatchItem] = []
+    items: list[WatchItem] = []
     for raw in raw_items:
         items.append(
             WatchItem(
@@ -1014,13 +1106,13 @@ def load_watchlist(path: str = "watchlist.yaml") -> List[WatchItem]:
     return items
 
 
-def _normalise_email_indices(value: object) -> Optional[List[int]]:
+def _normalise_email_indices(value: object) -> list[int] | None:
     """Normalise optional email recipient index selectors from YAML."""
     if value in (None, ""):
         return None
 
     raw_values = value if isinstance(value, list) else [value]
-    indices: List[int] = []
+    indices: list[int] = []
     for raw_value in raw_values:
         try:
             index = int(raw_value)
@@ -1038,10 +1130,10 @@ def _normalise_email_indices(value: object) -> Optional[List[int]]:
     return indices or None
 
 
-def get_email_recipients(cfg: Dict[str, Any]) -> List[str]:
+def get_email_recipients(cfg: dict[str, Any]) -> list[str]:
     """Return the configured recipient list in index order."""
     recipients_raw = cfg.get("to_emails")
-    recipients: List[str] = []
+    recipients: list[str] = []
     if recipients_raw not in (None, ""):
         if not isinstance(recipients_raw, list):
             raise ValueError("email_config to_emails must be a list of addresses")
@@ -1058,7 +1150,7 @@ def get_email_recipients(cfg: Dict[str, Any]) -> List[str]:
 
 
 def get_email_bool_option(
-    cfg: Dict[str, Any],
+    cfg: dict[str, Any],
     key: str,
     recipient_index: int,
     default: bool = False,
@@ -1073,7 +1165,7 @@ def get_email_bool_option(
 
 
 def validate_watchlist_email_indices(
-    watchlist: List[WatchItem], recipients: List[str]
+    watchlist: list[WatchItem], recipients: list[str]
 ) -> None:
     """Ensure watchlist email indices point at configured recipients."""
     if not recipients:
@@ -1093,12 +1185,12 @@ def validate_watchlist_email_indices(
 
 
 def select_offers_for_email_recipient(
-    watchlist: List[WatchItem],
-    all_offers: Dict[str, List[Offer]],
+    watchlist: list[WatchItem],
+    all_offers: dict[str, list[Offer]],
     recipient_index: int,
-) -> Dict[str, List[Offer]]:
+) -> dict[str, list[Offer]]:
     """Return the watchlist subset intended for one recipient."""
-    selected: Dict[str, List[Offer]] = {}
+    selected: dict[str, list[Offer]] = {}
     for watch_item in watchlist:
         if watch_item.email_indices and recipient_index not in watch_item.email_indices:
             continue
@@ -1170,12 +1262,12 @@ def search_woolies(
     return response
 
 
-def _as_mapping(value: object) -> Dict[str, Any]:
+def _as_mapping(value: object) -> dict[str, Any]:
     """Return a dict-like payload or an empty mapping."""
     return value if isinstance(value, dict) else {}
 
 
-def _pick_first(raw: Dict[str, Any], *keys: str) -> Any:
+def _pick_first(raw: dict[str, Any], *keys: str) -> Any:
     """Return the first non-empty key value from a raw API product payload."""
     for key in keys:
         value = raw.get(key)
@@ -1184,7 +1276,7 @@ def _pick_first(raw: Dict[str, Any], *keys: str) -> Any:
     return None
 
 
-def _coerce_float(value: object) -> Optional[float]:
+def _coerce_float(value: object) -> float | None:
     """Convert common numeric payload shapes into a float."""
     if value in (None, ""):
         return None
@@ -1209,7 +1301,7 @@ def _coerce_float(value: object) -> Optional[float]:
         return None
 
 
-def _coerce_str(value: object) -> Optional[str]:
+def _coerce_str(value: object) -> str | None:
     """Normalise an optional scalar value to a trimmed string."""
     if value in (None, ""):
         return None
@@ -1236,7 +1328,7 @@ def _coerce_bool(value: object, default: bool = False) -> bool:
 def _normalise_numeric_filter_input(
     value: object,
     field_name: str,
-) -> Optional[str]:
+) -> str | None:
     """Normalise a numeric filter input from YAML into a compact string."""
     if value in (None, ""):
         return None
@@ -1296,7 +1388,7 @@ def _parse_numeric_filter_spec(
     )
 
 
-def _extract_numeric_value(value: object) -> Optional[float]:
+def _extract_numeric_value(value: object) -> float | None:
     """Extract the first numeric value from a scalar such as $1.50 or 900ml."""
     if value in (None, ""):
         return None
@@ -1312,7 +1404,7 @@ def _extract_numeric_value(value: object) -> Optional[float]:
 
 def _numeric_filter_matches(
     raw_value: object,
-    filter_spec: Optional[str],
+    filter_spec: str | None,
     field_name: str,
 ) -> bool:
     """Return True when a value passes the configured numeric filter."""
@@ -1342,7 +1434,7 @@ def _numeric_filter_matches(
     return True
 
 
-def extract_products_from_response(data: dict) -> List[dict]:
+def extract_products_from_response(data: dict) -> list[dict]:
     """Find the product list in a RapidAPI-style response."""
     if isinstance(data, list):
         return [item for item in data if isinstance(item, dict)]
@@ -1373,7 +1465,7 @@ def extract_products_from_response(data: dict) -> List[dict]:
     return [data]
 
 
-def extract_pagination_from_response(data: dict) -> Tuple[int, int, Optional[int]]:
+def extract_pagination_from_response(data: dict) -> tuple[int, int, int | None]:
     """Read current page and total pages/results from a response."""
     if not isinstance(data, dict):
         return 1, 1, None
@@ -1423,6 +1515,19 @@ def normalise_coles_product(watch_name: str, raw: dict) -> Offer:
     brand = _coerce_str(
         _pick_first(raw, "product_brand", "brand", "productBrand", "Brand")
     )
+    barcode = _coerce_str(
+        _pick_first(
+            raw,
+            "barcode",
+            "Barcode",
+            "gtin",
+            "GTIN",
+            "ean",
+            "EAN",
+            "product_barcode",
+            "productBarcode",
+        )
+    )
     price = _coerce_float(
         _pick_first(raw, "current_price", "currentPrice", "price", "CurrentPrice")
     )
@@ -1463,6 +1568,7 @@ def normalise_coles_product(watch_name: str, raw: dict) -> Offer:
         price=price,
         size=size or "",
         url=url,
+        barcode=barcode,
         was_price=was_price,
         is_half_price=is_half_price,
     )
@@ -1547,9 +1653,9 @@ def normalise_woolies_product(watch_name: str, raw: dict) -> Offer:
 # =========================
 
 
-def _dedupe_offers(offers: List[Offer]) -> List[Offer]:
+def _dedupe_offers(offers: list[Offer]) -> list[Offer]:
     """Remove duplicates caused by overlapping keywords and paged results."""
-    deduped: Dict[Tuple[object, ...], Offer] = {}
+    deduped: dict[tuple[object, ...], Offer] = {}
     for offer in offers:
         key = (
             offer.store,
@@ -1563,7 +1669,7 @@ def _dedupe_offers(offers: List[Offer]) -> List[Offer]:
     return list(deduped.values())
 
 
-def _normalise_match_text(value: Optional[str]) -> str:
+def _normalise_match_text(value: str | None) -> str:
     """Normalise text for smarter include/exclude keyword matching."""
     text = (value or "").strip().lower()
     # Remove apostrophes so "smith's" and "smiths" collapse to the same base
@@ -1573,7 +1679,7 @@ def _normalise_match_text(value: Optional[str]) -> str:
     return " ".join(text.split())
 
 
-def _tokenise_match_text(value: Optional[str]) -> List[str]:
+def _tokenise_match_text(value: str | None) -> list[str]:
     """Split normalised text into comparable tokens."""
     text = _normalise_match_text(value)
     return text.split() if text else []
@@ -1638,7 +1744,7 @@ def _normalise_keyword_for_search(keyword: str) -> str:
     return _normalise_match_text(keyword)
 
 
-def _normalise_store_name(value: object) -> Optional[str]:
+def _normalise_store_name(value: object) -> str | None:
     """Map common store aliases to the internal display names."""
     if value is None:
         return None
@@ -1652,7 +1758,7 @@ def _normalise_store_name(value: object) -> Optional[str]:
     return alias_map.get(text)
 
 
-def _normalise_watch_stores(raw_stores: object) -> List[str]:
+def _normalise_watch_stores(raw_stores: object) -> list[str]:
     """Return the allowed stores for a watch item, defaulting to both."""
     if raw_stores in (None, "", []):
         return ["Coles", "Woolworths"]
@@ -1666,7 +1772,7 @@ def _normalise_watch_stores(raw_stores: object) -> List[str]:
             "watchlist.yaml stores must be a string or list of store names"
         )
 
-    normalised: List[str] = []
+    normalised: list[str] = []
     for value in candidate_values:
         if not value:
             continue
@@ -1690,16 +1796,16 @@ def _search_signature_token(token: str) -> str:
     return token
 
 
-def _keyword_search_signature(keyword: str) -> Tuple[str, ...]:
+def _keyword_search_signature(keyword: str) -> tuple[str, ...]:
     """Build a loose signature so near-equivalent search phrases collapse."""
     return tuple(
         _search_signature_token(token) for token in _tokenise_match_text(keyword)
     )
 
 
-def _derive_search_keywords(match_keywords: List[str]) -> List[str]:
+def _derive_search_keywords(match_keywords: list[str]) -> list[str]:
     """Choose a compact set of API search terms from the match keywords."""
-    chosen: Dict[Tuple[str, ...], str] = {}
+    chosen: dict[tuple[str, ...], str] = {}
     for keyword in match_keywords:
         signature = _keyword_search_signature(keyword)
         if not signature:
@@ -1720,12 +1826,13 @@ def _collect_keyword_offers(
     store: str,
     search_fn,
     normalise_fn,
-) -> List[Offer]:
+) -> list[Offer]:
     """Fetch the first few pages for one store/keyword pair."""
-    offers: List[Offer] = []
+    offers: list[Offer] = []
 
     first_page = search_fn(keyword, page_size=DEFAULT_PAGE_SIZE, page_number=1)
     raw_products = extract_products_from_response(first_page)
+    _validate_product_page(first_page, raw_products)
     offers.extend([normalise_fn(watch_item.name, raw) for raw in raw_products])
 
     current_page, total_pages, _ = extract_pagination_from_response(first_page)
@@ -1737,19 +1844,56 @@ def _collect_keyword_offers(
             page_number=page_number,
         )
         paged_products = extract_products_from_response(paged_data)
+        _validate_product_page(paged_data, paged_products)
         offers.extend([normalise_fn(watch_item.name, raw) for raw in paged_products])
 
     return offers
 
 
+def _validate_product_page(data: object, products: list[dict]) -> None:
+    """Reject API pages whose metadata promises data but contains no list."""
+    if not isinstance(data, dict):
+        if not isinstance(data, list):
+            raise ValueError("API response must be a mapping or product list")
+        return
+
+    nested = _as_mapping(data.get("data"))
+    has_product_list = any(
+        isinstance(candidate, list)
+        for candidate in (
+            data.get("results"),
+            nested.get("results"),
+            data.get("products"),
+            nested.get("products"),
+            data.get("items"),
+            nested.get("items"),
+        )
+    )
+    current_page, total_pages, total_results = extract_pagination_from_response(data)
+    has_result_metadata = (
+        "query" in data
+        or current_page > 1
+        or total_pages > 1
+        or total_results is not None
+    )
+    if has_result_metadata and not has_product_list and total_results != 0:
+        raise ValueError("API response is missing its product list")
+    if total_pages > 1 and not products:
+        raise ValueError("API response has more pages but no products")
+    if current_page > 1 and not products:
+        raise ValueError("API response page has no products")
+    if total_results and total_results > 0 and not products:
+        raise ValueError("API response has products metadata but no products")
+
+
 def collect_offers_by_keyword(
-    watchlist: List[WatchItem],
-    allowed_stores: Optional[set[str]] = None,
-) -> Dict[str, List[Offer]]:
+    watchlist: list[WatchItem],
+    allowed_stores: set[str] | None = None,
+) -> dict[str, list[Offer]]:
     """Search each unique keyword once per store and reuse the results."""
-    offers_by_keyword: Dict[str, List[Offer]] = {}
-    seen_keywords: Dict[str, str] = {}
-    keyword_stores: Dict[str, set[str]] = {}
+    offers_by_keyword: dict[str, list[Offer]] = {}
+    seen_keywords: dict[str, str] = {}
+    keyword_stores: dict[str, set[str]] = {}
 
     for watch_item in watchlist:
         for keyword in _derive_search_keywords(watch_item.match_keywords):
@@ -1770,7 +1914,7 @@ def collect_offers_by_keyword(
     }
 
     for normalised_keyword, keyword in seen_keywords.items():
-        keyword_offers: List[Offer] = []
+        keyword_offers: list[Offer] = []
         for store in ("Coles", "Woolworths"):
             if store not in keyword_stores.get(normalised_keyword, set()):
                 continue
@@ -1796,8 +1940,11 @@ def collect_offers_by_keyword(
                     )
                 )
             except APILimitExceeded:
-                raise
+                FAILED_VENDOR_QUERIES.add(store)
+                print(f"[WARN] {store} API limit reached for '{keyword}'")
+                continue
             except Exception as exc:
+                FAILED_VENDOR_QUERIES.add(store)
                 print(f"[WARN] {store} search failed for '{keyword}': {exc}")
 
         offers_by_keyword[normalised_keyword] = _dedupe_offers(keyword_offers)
@@ -1806,11 +1953,11 @@ def collect_offers_by_keyword(
 
 
 def find_offers_for_watch_item(
-    watch_item: WatchItem, offers_by_keyword: Dict[str, List[Offer]]
-) -> List[Offer]:
+    watch_item: WatchItem, offers_by_keyword: dict[str, list[Offer]]
+) -> list[Offer]:
     """Reuse searched keyword results and filter them for one watch item."""
-    offers: List[Offer] = []
-    seen_offer_keys: set[Tuple[object, ...]] = set()
+    offers: list[Offer] = []
+    seen_offer_keys: set[tuple[object, ...]] = set()
 
     include_keywords = watch_item.include_keywords or watch_item.match_keywords
 
@@ -1898,11 +2045,11 @@ def find_offers_for_watch_item(
 
 
 def _build_cheapest_summary(
-    all_offers: Dict[str, List[Offer]],
-    expected_watch_stores: Optional[Dict[str, set[str]]] = None,
-) -> Dict[str, Dict[str, Any]]:
+    all_offers: dict[str, list[Offer]],
+    expected_watch_stores: dict[str, set[str]] | None = None,
+) -> dict[str, dict[str, Any]]:
     """Return per-watch cheapest offer plus freshness-aware advisory notes."""
-    summary: Dict[str, Dict[str, Any]] = {}
+    summary: dict[str, dict[str, Any]] = {}
     for watch_name, offers in all_offers.items():
         sorted_offers = sorted(offers, key=lambda offer: (offer.price, offer.store))
         cheapest = sorted_offers[0] if sorted_offers else None
@@ -1937,11 +2084,11 @@ def _build_cheapest_summary(
 
 
 def _build_text_cheapest_section(
-    all_offers: Dict[str, List[Offer]],
-    expected_watch_stores: Optional[Dict[str, set[str]]] = None,
-) -> List[str]:
+    all_offers: dict[str, list[Offer]],
+    expected_watch_stores: dict[str, set[str]] | None = None,
+) -> list[str]:
     """Build the plain-text top section listing cheapest offers by watch item."""
-    lines: List[str] = ["## Cheapest", ""]
+    lines: list[str] = ["## Cheapest", ""]
     summary = _build_cheapest_summary(all_offers, expected_watch_stores)
     for watch_name in all_offers.keys():
         row = summary.get(watch_name, {})
@@ -1964,11 +2111,11 @@ def _build_text_cheapest_section(
 
 
 def _build_html_cheapest_section(
-    all_offers: Dict[str, List[Offer]],
-    expected_watch_stores: Optional[Dict[str, set[str]]] = None,
-) -> List[str]:
+    all_offers: dict[str, list[Offer]],
+    expected_watch_stores: dict[str, set[str]] | None = None,
+) -> list[str]:
     """Build the HTML top section listing cheapest offers by watch item."""
-    parts: List[str] = ["<h2>Cheapest</h2>", "<ul>"]
+    parts: list[str] = ["<h2>Cheapest</h2>", "<ul>"]
     summary = _build_cheapest_summary(all_offers, expected_watch_stores)
     for watch_name in all_offers.keys():
         row = summary.get(watch_name, {})
@@ -2001,14 +2148,14 @@ def _build_html_cheapest_section(
 
 
 def build_report(
-    all_offers: Dict[str, List[Offer]],
-    limit_warnings: Optional[List[str]] = None,
+    all_offers: dict[str, list[Offer]],
+    limit_warnings: list[str] | None = None,
     verbose: bool = False,
-    api_calls_footer: Optional[str] = None,
-    expected_watch_stores: Optional[Dict[str, set[str]]] = None,
+    api_calls_footer: str | None = None,
+    expected_watch_stores: dict[str, set[str]] | None = None,
 ) -> str:
     """Render a text report plus optional API usage warnings."""
-    lines: List[str] = []
+    lines: list[str] = []
 
     if limit_warnings:
         lines.append("## API usage warnings")
@@ -2063,15 +2210,15 @@ def build_report(
 
 
 def build_html_report(
-    all_offers: Dict[str, List[Offer]],
-    limit_warnings: Optional[List[str]] = None,
+    all_offers: dict[str, list[Offer]],
+    limit_warnings: list[str] | None = None,
     verbose: bool = False,
-    api_calls_footer: Optional[str] = None,
-    expected_watch_stores: Optional[Dict[str, set[str]]] = None,
+    api_calls_footer: str | None = None,
+    expected_watch_stores: dict[str, set[str]] | None = None,
     cheapest_highlight_color: str = "red",
 ) -> str:
     """Render the report as HTML tables for email clients."""
-    parts: List[str] = [
+    parts: list[str] = [
         '<html><body style="font-family: Arial, sans-serif; color: #222;">'
     ]
 
@@ -2151,7 +2298,7 @@ def build_html_report(
                     if offer is watch_cheapest
                     else "border: 1px solid #ccc; padding: 8px; vertical-align: top;"
                 )
-                parts.append(f'<td style="{style}">' f"{cell}</td>")
+                parts.append(f'<td style="{style}">{cell}</td>')
             parts.append("</tr>")
 
         parts.append("</tbody></table>")
@@ -2176,16 +2323,14 @@ def build_api_calls_footer() -> str:
     )
 
 
-def append_api_calls_footer(report: str, api_calls_footer: Optional[str]) -> str:
+def append_api_calls_footer(report: str, api_calls_footer: str | None) -> str:
     """Append the optional API call footer to a plain-text report."""
     if not api_calls_footer:
         return report
     return "\n\n".join([report.rstrip(), "## Accumulated API calls", api_calls_footer])
 
 
-def append_api_calls_footer_html(
-    html_report: str, api_calls_footer: Optional[str]
-) -> str:
+def append_api_calls_footer_html(html_report: str, api_calls_footer: str | None) -> str:
     """Append the optional API call footer to an HTML report."""
     if not api_calls_footer:
         return html_report
@@ -2202,7 +2347,7 @@ def append_api_calls_footer_html(
     return html_report + footer_html
 
 
-def resolve_email_subject(cfg: Dict[str, Any], subject: str) -> str:
+def resolve_email_subject(cfg: dict[str, Any], subject: str) -> str:
     """Resolve the effective email subject with config fallback."""
     email_subject = str(subject).strip() or "Weekly grocery specials report"
     if email_subject == "Weekly grocery specials report":
@@ -2213,14 +2358,14 @@ def resolve_email_subject(cfg: Dict[str, Any], subject: str) -> str:
 
 
 def build_email_deliveries(
-    watchlist: List[WatchItem],
-    all_offers: Dict[str, List[Offer]],
-    email_cfg: Dict[str, Any],
+    watchlist: list[WatchItem],
+    all_offers: dict[str, list[Offer]],
+    email_cfg: dict[str, Any],
     subject: str = "Weekly grocery specials report",
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Build per-recipient email payloads using the configured routing rules."""
     recipients = get_email_recipients(email_cfg)
-    deliveries: List[Dict[str, Any]] = []
+    deliveries: list[dict[str, Any]] = []
     expected_watch_stores = {
         watch_item.name: set(watch_item.stores) for watch_item in watchlist
     }
@@ -2324,7 +2469,7 @@ def build_email_deliveries(
     return deliveries
 
 
-def print_email_delivery_preview(deliveries: List[Dict[str, Any]]) -> None:
+def print_email_delivery_preview(deliveries: list[dict[str, Any]]) -> None:
     """Print a dry-run preview of each email that would be sent."""
     if not deliveries:
         print("[INFO] No email deliveries were generated for preview.")
@@ -2335,8 +2480,7 @@ def print_email_delivery_preview(deliveries: List[Dict[str, Any]]) -> None:
         print("")
         print("[INFO] ------------------------------------------------------------")
         print(
-            f"[INFO] Recipient #{delivery['recipient_index']}: "
-            f"{delivery['recipient']}"
+            f"[INFO] Recipient #{delivery['recipient_index']}: {delivery['recipient']}"
         )
         print(f"[INFO] Subject: {delivery['subject']}")
         print(
@@ -2357,8 +2501,8 @@ def print_email_delivery_preview(deliveries: List[Dict[str, Any]]) -> None:
 def send_email_report(
     report: str,
     subject: str = "Weekly grocery specials report",
-    html_report: Optional[str] = None,
-    to_email: Optional[str] = None,
+    html_report: str | None = None,
+    to_email: str | None = None,
 ) -> bool:
     """Send the report via SMTP using the configured auth settings."""
     configure_logging()
@@ -2599,6 +2743,7 @@ def main(
     )
     RUN_API_CALL_COUNT["Coles"] = 0
     RUN_API_CALL_COUNT["Woolworths"] = 0
+    FAILED_VENDOR_QUERIES.clear()
     watchlist = load_watchlist(watchlist_path)
     freshness_config = _load_specials_freshness_config()
     vendor_state = _load_vendor_specials_state()
@@ -2643,9 +2788,9 @@ def main(
         vendor for vendor, plan in vendor_plans.items() if plan.should_query
     }
     LOGGER.info("event=active_vendors vendors=%s", _log_list(sorted(active_stores)))
-    all_offers: Dict[str, List[Offer]] = {}
+    all_offers: dict[str, list[Offer]] = {}
 
-    limit_error: Optional[str] = None
+    limit_error: str | None = None
     try:
         offers_by_keyword = collect_offers_by_keyword(
             watchlist,
@@ -2665,7 +2810,9 @@ def main(
     recipients = get_email_recipients(email_cfg)
     validate_watchlist_email_indices(watchlist, recipients)
 
-    vendor_send_modes: Dict[str, str] = {}
+    vendor_send_modes: dict[str, str] = {}
+    latest_vendor_hashes: dict[str, str] = {}
+    latest_vendor_payloads: dict[str, dict[str, Any]] = {}
     for vendor in STORE_NAMES:
         plan = vendor_plans[vendor]
         if not plan.should_query:
@@ -2680,6 +2827,14 @@ def main(
                 "event=vendor_freshness vendor=%s freshness=skipped reason=%s",
                 vendor,
                 reason,
+            )
+            continue
+
+        if vendor in FAILED_VENDOR_QUERIES:
+            LOGGER.warning(
+                "event=vendor_freshness vendor=%s freshness=skipped "
+                "reason=incomplete_api_results",
+                vendor,
             )
             continue
 
@@ -2700,15 +2855,27 @@ def main(
         )
         vendor_offer_count = sum(len(offers) for offers in vendor_offers.values())
         current_hash = _vendor_offer_signature(vendor_offers)
+        latest_vendor_hashes[vendor] = current_hash
+        latest_vendor_payloads[vendor] = _snapshot_vendor_offers(vendor_offers)
         state = vendor_state.setdefault(vendor, _default_vendor_state())
         state["last_checked_date"] = today.isoformat()
 
         reference_hash = state.get("reference_hash")
-        has_changed = reference_hash is None or current_hash != reference_hash
+        reference_offers = _restore_vendor_offers(state.get("reference_payload"))
+        if reference_offers:
+            reference_price_hash = _vendor_offer_price_signature(
+                reference_offers, reference_offers
+            )
+            current_price_hash = _vendor_offer_price_signature(
+                vendor_offers, reference_offers
+            )
+            has_changed = current_price_hash != reference_price_hash
+        else:
+            has_changed = reference_hash is None or current_hash != reference_hash
         if has_changed:
             state["changed_this_cycle"] = True
-            state["last_known_hash"] = current_hash
-            state["last_known_payload"] = _snapshot_vendor_offers(vendor_offers)
+            state["pending_hash"] = current_hash
+            state["pending_payload"] = latest_vendor_payloads[vendor]
             vendor_send_modes[vendor] = "success"
             LOGGER.info(
                 "event=vendor_freshness vendor=%s freshness=fresh send_mode=success "
@@ -2738,7 +2905,7 @@ def main(
                 _weekday_label(plan.schedule.force_send_day),
             )
 
-    deliveries: List[Dict[str, Any]] = []
+    deliveries: list[dict[str, Any]] = []
     due_vendors = sorted(vendor_send_modes.keys())
     if due_vendors:
         due_vendor_set = set(due_vendors)
@@ -2756,7 +2923,7 @@ def main(
             if comparison_vendor_set.intersection(set(watch_item.stores))
         ]
         combined_watch_names = {item.name for item in combined_watchlist}
-        combined_offers: Dict[str, List[Offer]] = {}
+        combined_offers: dict[str, list[Offer]] = {}
         for watch_name, offers in all_offers.items():
             if watch_name not in combined_watch_names:
                 continue
@@ -2767,11 +2934,15 @@ def main(
         for vendor in comparison_vendor_set:
             if vendor in due_vendor_set:
                 continue
-            restored = _restore_vendor_offers(
-                vendor_state.setdefault(vendor, _default_vendor_state()).get(
-                    "last_known_payload"
-                )
+            other_vendor_state = vendor_state.setdefault(
+                vendor, _default_vendor_state()
             )
+            report_payload = (
+                other_vendor_state.get("pending_payload")
+                if other_vendor_state.get("pending_hash") is not None
+                else other_vendor_state.get("last_known_payload")
+            )
+            restored = _restore_vendor_offers(report_payload)
             for watch_name, restored_offers in restored.items():
                 if watch_name not in combined_watch_names:
                     continue
@@ -2860,6 +3031,16 @@ def main(
 
         if all_deliveries_sent:
             _mark_vendor_reports_sent(vendor_state, due_vendors, today)
+            for vendor in due_vendors:
+                if vendor in latest_vendor_hashes:
+                    vendor_state[vendor]["last_known_hash"] = latest_vendor_hashes[
+                        vendor
+                    ]
+                    vendor_state[vendor]["last_known_payload"] = latest_vendor_payloads[
+                        vendor
+                    ]
+                    vendor_state[vendor]["pending_hash"] = None
+                    vendor_state[vendor]["pending_payload"] = {}
             LOGGER.info(
                 "event=vendor_reports_marked_sent vendors=%s sent_date=%s",
                 _log_list(due_vendors),

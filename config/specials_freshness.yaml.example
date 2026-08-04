@@ -2,9 +2,12 @@
 # vendor freshness checks and fallback email messaging.
 vendors:
   default:
-    # Start checking for new weekly specials on this local-calendar day.
+    # Start a new weekly comparison cycle on this local-calendar day. The
+    # last successfully delivered vendor snapshot becomes that cycle's fixed
+    # freshness reference.
     start_day: "Wednesday"
-    # If no change is detected by this local-calendar day, send anyway.
+    # If no reference-product price change is detected by this local-calendar
+    # day, send the current report anyway.
     force_send_day: "Saturday"
   # Optional per-vendor overrides.
   # coles:
