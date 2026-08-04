@@ -1,5 +1,10 @@
 # Raspberry Pi Setup Guide for specials-agent
 
+> Historical/unsupported documentation. This guide applies to the abandoned
+> Playwright-based implementation under `abandoned/`, not the current
+> RapidAPI-based checker. Use the root `README.md` for supported Raspberry Pi
+> setup instructions.
+
 This guide walks you through setting up the specials-agent grocery sale scraper on a Raspberry Pi (tested on openHABian), with automatic weekly execution via cron.
 
 ## Prerequisites

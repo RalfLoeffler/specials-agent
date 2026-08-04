@@ -1,5 +1,10 @@
 # specials-agent
 
+> Historical/unsupported documentation. This directory describes an abandoned
+> Playwright-based implementation and does not document the current
+> RapidAPI-based checker in the repository root. Use the root `README.md` for
+> supported setup and operation instructions.
+
 Automated grocery sale scraper for Australian supermarkets (Coles and Woolworths) using Playwright. Get email alerts when items on your watchlist go on sale!
 
 ## Features

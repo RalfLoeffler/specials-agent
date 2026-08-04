@@ -113,21 +113,15 @@ rapidapi_key: "your_real_key_here"
 
 ## 4. Configure email (optional while testing)
 
-Copy the template and edit it:
-
-```bash
-cp config/email_config.yaml.example email_config.yaml
-nano email_config.yaml
-```
-
-Preferred location:
+Copy the template to the preferred location and edit it:
 
 ```bash
 cp config/email_config.yaml.example config/email_config.yaml
 nano config/email_config.yaml
 ```
 
-Legacy fallback:
+The checker also supports a root-level `email_config.yaml` as a legacy
+fallback when `config/email_config.yaml` is absent:
 
 ```bash
 cp config/email_config.yaml.example email_config.yaml
@@ -489,7 +483,7 @@ pip install requests pyyaml openpyxl
 Create the runtime config files:
 
 ```bash
-cp config/email_config.yaml.example email_config.yaml
+cp config/email_config.yaml.example config/email_config.yaml
 cp config/limits.yaml.example config/limits.yaml
 cp config/specials_freshness.yaml.example config/specials_freshness.yaml
 cp config/secrets.example.yaml config/secrets.yaml
@@ -498,7 +492,7 @@ cp config/secrets.example.yaml config/secrets.yaml
 Then edit:
 
 ```bash
-nano email_config.yaml
+nano config/email_config.yaml
 nano config/secrets.yaml
 nano watchlist.yaml
 ```
@@ -521,7 +515,7 @@ python src/specials_checker.py
 
 ---
 
-## 8. Weekly cron job on the Pi
+## 8. Wednesday-through-Saturday cron job on the Pi
 
 Edit the crontab for user `openhabian`:
 
@@ -529,14 +523,19 @@ Edit the crontab for user `openhabian`:
 crontab -e
 ```
 
-Example: every Wednesday at 09:05:
+Example: every day from Wednesday through Saturday at 09:05:
 
 ```cron
-5 9 * * 3 cd /home/openhabian/specials-agent && /home/openhabian/specials-agent/.venv/bin/python src/specials_checker.py >> /home/openhabian/specials-agent/cron.log 2>&1
+5 9 * * 3-6 cd /home/openhabian/specials-agent && /home/openhabian/specials-agent/.venv/bin/python src/specials_checker.py >> /home/openhabian/specials-agent/cron.log 2>&1
 ```
 
+The daily runs allow the configured freshness window to retry unchanged vendor
+data and force-send it on the configured fallback day. If you change
+`start_day` or `force_send_day` in `config/specials_freshness.yaml`, adjust the
+cron day range to cover that window.
+
 The `cd` is important because the script reads relative paths such as
-`watchlist.yaml`, `config/secrets.yaml`, and `email_config.yaml`.
+`watchlist.yaml`, `config/secrets.yaml`, and `config/email_config.yaml`.
 
 The checker also writes an app-level rotating log to:
 
@@ -701,9 +700,10 @@ emails you when your favourite snacks go on special.
 
 ## 11. Freshness Mitigation
 
-The weekly freshness mitigation flow is now built in:
+The weekly freshness mitigation flow is built in:
 
-- Run on Wednesday/Thursday/Friday/Saturday (or your configured vendor window).
+- Run on Wednesday/Thursday/Friday/Saturday, or across your configured vendor
+  window.
 - Persist last-known vendor specials signatures in
   `config/vendor_specials_state.json`.
 - Detect changes independently for Coles and Woolworths.
@@ -711,19 +711,5 @@ The weekly freshness mitigation flow is now built in:
   still has not changed.
 - Stop polling a vendor after it has changed and sent for the current cycle,
   then resume at the next configured cycle start.
-
-  ## TODO
-
-  don't remove this section heading after completion, just remove the done parts and
-  comment them at the correct spot
-  <!-- done: removed per-table "cheapest overall" line and replaced with top-level
-    cheapest section including name/price/store/size/link -->
-  <!-- done: added configurable cheapest row highlighting in HTML table with
-    default color red (cheapest_highlight_color) -->
-  <!-- done: when one vendor has no fresh data this run, cheapest section now
-    adds a note that the other vendor may still be cheaper -->
-  <!-- done: when a vendor updates later in-cycle, reports compare against both
-    vendors by reusing persisted up-to-date offers from earlier updates -->
-  - if there are empty list entries, they show up as [] in the excel file, it should be handled differently, there should be an empty or white space and this should be added in the conversion script
-  - the logic for only one vendor having new data is wrong for early in hte week 
-  - make the 'no new data' note also in highlight color
+- Export and import preserve explicit empty list values such as `[]` in Excel
+  watchlist workflows.
