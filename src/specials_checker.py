@@ -818,7 +818,7 @@ def _vendor_offer_price_signature(
     vendor_offers: dict[str, list[Offer]],
     reference_offers: dict[str, list[Offer]],
 ) -> str:
-    """Checksum prices for products present in the previous vendor snapshot."""
+    """Checksum prices for current products successfully matched to prior ones."""
     payload: list[dict[str, Any]] = []
     for watch_name in sorted(reference_offers.keys()):
         unmatched_current = sorted(
@@ -854,9 +854,9 @@ def _vendor_offer_price_signature(
                     ),
                     None,
                 )
-            prices = []
-            if match_index is not None:
-                prices = [round(unmatched_current.pop(match_index).price, 2)]
+            if match_index is None:
+                continue
+            prices = [round(unmatched_current.pop(match_index).price, 2)]
             payload.append(
                 {
                     "watch_name": watch_name,
@@ -2864,7 +2864,7 @@ def main(
         reference_offers = _restore_vendor_offers(state.get("reference_payload"))
         if reference_offers:
             reference_price_hash = _vendor_offer_price_signature(
-                reference_offers, reference_offers
+                reference_offers, vendor_offers
             )
             current_price_hash = _vendor_offer_price_signature(
                 vendor_offers, reference_offers

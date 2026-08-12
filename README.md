@@ -640,12 +640,12 @@ Freshness comparison ground truth:
   start, the vendor's last successfully delivered snapshot becomes the fixed
   reference snapshot for the whole cycle. Wednesday-to-Saturday retries keep
   comparing against that cycle-start reference; a retry does not replace it.
-- When a non-empty reference snapshot exists, freshness compares current prices
-  only for products that were present in that prior reference snapshot. Products found
-  only in the current API response, or current products that cannot be matched
-  to a reference product, are ignored for freshness by themselves. A reference
-  product missing from the current response is treated as having no current
-  price and therefore does count as a change.
+- When a non-empty reference snapshot exists, freshness compares prices only
+  for products successfully matched between the reference snapshot and current
+  API response. Reference products missing from the current response, reference
+  products that cannot be matched, and products found only in the current API
+  response are ignored. Only a price difference for a matched product counts as
+  fresh data.
 - Matching is per watch item. A normalized barcode is preferred. If the
   reference product has a barcode, the current product must have the same
   barcode; a different or missing barcode is not details-matched. If the

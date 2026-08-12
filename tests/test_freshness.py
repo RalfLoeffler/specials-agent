@@ -71,6 +71,38 @@ class VendorFreshnessTests(unittest.TestCase):
             _vendor_offer_price_signature(current, reference),
         )
 
+    def test_absent_previous_product_does_not_make_unchanged_prices_fresh(
+        self,
+    ) -> None:
+        reference = {
+            "Chocolate": [
+                _offer("Existing block", 3.50, "existing"),
+                _offer("Absent block", 4.00, "absent"),
+            ]
+        }
+        current = {"Chocolate": [_offer("Existing block", 3.50, "existing")]}
+
+        self.assertEqual(
+            _vendor_offer_price_signature(reference, current),
+            _vendor_offer_price_signature(current, reference),
+        )
+
+    def test_price_change_is_detected_despite_an_absent_previous_product(
+        self,
+    ) -> None:
+        reference = {
+            "Chocolate": [
+                _offer("Existing block", 3.50, "existing"),
+                _offer("Absent block", 4.00, "absent"),
+            ]
+        }
+        current = {"Chocolate": [_offer("Existing block", 4.00, "existing")]}
+
+        self.assertNotEqual(
+            _vendor_offer_price_signature(reference, current),
+            _vendor_offer_price_signature(current, reference),
+        )
+
     def test_barcode_appearance_falls_back_to_product_details(self) -> None:
         reference = {"Chocolate": [_offer("Existing block", 3.50, "")]}
         current = {"Chocolate": [_offer("Existing block", 3.50, "new-barcode")]}
@@ -94,12 +126,12 @@ class VendorFreshnessTests(unittest.TestCase):
             _vendor_offer_price_signature(current, reference),
         )
 
-    def test_conflicting_barcode_is_not_details_matched(self) -> None:
+    def test_conflicting_barcode_is_not_details_matched_or_compared(self) -> None:
         reference = {"Chocolate": [_offer("Existing block", 3.50, "old-barcode")]}
         current = {"Chocolate": [_offer("Existing block", 3.50, "new-barcode")]}
 
-        self.assertNotEqual(
-            _vendor_offer_price_signature(reference, reference),
+        self.assertEqual(
+            _vendor_offer_price_signature(reference, current),
             _vendor_offer_price_signature(current, reference),
         )
 
