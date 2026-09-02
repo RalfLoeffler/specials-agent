@@ -211,6 +211,8 @@ def import_watchlist_from_excel(
                 item["email_index"] = email_indices[0]
             else:
                 item["email_indices"] = email_indices
+        elif _is_explicit_empty_list_cell(email_indices_cell):
+            item["email_indices"] = []
         price_range = _optional_text(price_range_cell)
         if price_range is not None:
             item["price_range"] = price_range

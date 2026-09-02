@@ -249,6 +249,8 @@ items:
   address from `to_emails`.
 - `email_indices` - optional list of zero-based recipient indices when the item
   should go to multiple configured addresses.
+  Use `email_indices: []` to explicitly retain an empty recipient list through
+  the Excel export/import workflow.
 
 Matching notes:
 
@@ -379,6 +381,9 @@ If the optional columns are missing during import, these defaults are used:
 - `size_range`: omitted
 - `include_unknown_half_price: true`
 - `only_half_price: false`
+
+An Excel cell containing literal `[]` is an explicit empty list. It is
+preserved for `email_indices` as well as the other optional list columns.
 
 ### 5.2 Build standalone Excel helper executables (optional)
 
@@ -640,18 +645,25 @@ Freshness comparison ground truth:
   start, the vendor's last successfully delivered snapshot becomes the fixed
   reference snapshot for the whole cycle. Wednesday-to-Saturday retries keep
   comparing against that cycle-start reference; a retry does not replace it.
-- When a non-empty reference snapshot exists, freshness compares prices only
-  for products successfully matched between the reference snapshot and current
-  API response. Reference products missing from the current response, reference
-  products that cannot be matched, and products found only in the current API
-  response are ignored. Only a price difference for a matched product counts as
-  fresh data.
-- Matching is per watch item. A normalized barcode is preferred. If the
-  reference product has a barcode, the current product must have the same
-  barcode; a different or missing barcode is not details-matched. If the
-  reference product has no barcode, matching falls back to normalized product
-  title, brand, and size details, including when the current response newly
-  supplies a barcode.
+- Freshness is decided once per vendor across its complete, deduplicated
+  catalogue—not separately for each watch item. A price difference for any
+  safely matched product makes the vendor fresh immediately. Otherwise, the
+  checker counts distinct unmatched additions and removals. The default
+  `minimum_offer_changes: 3` ignores a single appearance/disappearance and a
+  single replacement (two changes), while detecting a materially rotated offer
+  set. Set a different positive integer globally or per vendor in
+  `config/specials_freshness.yaml` when a vendor needs a different tolerance.
+- Products returned by overlapping watchlist searches are deduplicated before
+  catalogue churn is counted. A barcode-less copy is also treated as an alias
+  of a barcoded copy only when its normalized details identify exactly one
+  barcode; ambiguous details shared by multiple barcodes remain separate. This
+  prevents one physical offer from satisfying the threshold several times
+  without weakening barcode-conflict safety.
+- Matching is barcode-first across that vendor catalogue. If the reference
+  product has a barcode, the current product must have the same barcode; a
+  different or missing barcode is not details-matched. If the reference product
+  has no barcode, matching falls back to normalized product title, brand, and
+  size details, including when the current response newly supplies a barcode.
 - Coles barcode data is read from its barcode, GTIN, and EAN field variants
   (including the API's product-barcode variants). Woolworths barcode data is
   read from its barcode and GTIN variants. Both are normalized before matching
@@ -714,10 +726,12 @@ Example `config/specials_freshness.yaml`:
 vendors:
   default:
     start_day: "Wednesday"
+    minimum_offer_changes: 3
     force_send_day: "Saturday"
   # Optional per-vendor overrides:
   # coles:
   #   start_day: "Wednesday"
+  #   minimum_offer_changes: 5
   #   force_send_day: "Saturday"
   # woolworths:
   #   start_day: "Wednesday"

@@ -6,12 +6,19 @@ vendors:
     # last successfully delivered vendor snapshot becomes that cycle's fixed
     # freshness reference.
     start_day: "Wednesday"
-    # If no reference-product price change is detected by this local-calendar
-    # day, send the current report anyway.
+    # A safely matched product price change is fresh immediately. Otherwise,
+    # this many distinct physical offer additions/removals (after safe
+    # duplicate/alias deduplication) are required before the vendor is fresh.
+    # Three ignores one-off API search variation and a single replacement (two
+    # changes).
+    minimum_offer_changes: 3
+    # If no fresh vendor data is detected by this local-calendar day, send the
+    # current report anyway.
     force_send_day: "Saturday"
   # Optional per-vendor overrides.
   # coles:
   #   start_day: "Wednesday"
+  #   minimum_offer_changes: 5
   #   force_send_day: "Saturday"
   # woolworths:
   #   start_day: "Wednesday"

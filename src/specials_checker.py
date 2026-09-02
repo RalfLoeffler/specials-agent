@@ -178,6 +178,7 @@ WEEKDAY_NAME_TO_INT = {
 class VendorScheduleWindow:
     start_day: int
     force_send_day: int
+    minimum_offer_changes: int
 
 
 @dataclass
@@ -185,6 +186,21 @@ class VendorProcessingPlan:
     schedule: VendorScheduleWindow
     should_query: bool
     within_window: bool
+
+
+@dataclass(frozen=True)
+class VendorFreshnessSummary:
+    """Evidence from one vendor-wide reference/current catalogue comparison."""
+
+    matched_offer_count: int
+    price_change_count: int
+    added_offer_count: int
+    removed_offer_count: int
+
+    @property
+    def offer_change_count(self) -> int:
+        """Return distinct physical catalogue additions plus removals."""
+        return self.added_offer_count + self.removed_offer_count
 
 
 class APILimitExceeded(Exception):
@@ -433,6 +449,29 @@ def _coerce_weekday(value: object, field_name: str, default: int) -> int:
     return mapped
 
 
+def _coerce_minimum_offer_changes(
+    value: object,
+    field_name: str,
+    default: int,
+) -> int:
+    """Parse a positive integer threshold for distinct catalogue churn."""
+    if value in (None, ""):
+        return default
+    if isinstance(value, bool):
+        raise ValueError(f"{field_name} must be a positive integer")
+
+    try:
+        threshold = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field_name} must be a positive integer") from exc
+
+    if isinstance(value, float) and not value.is_integer():
+        raise ValueError(f"{field_name} must be a positive integer")
+    if threshold < 1:
+        raise ValueError(f"{field_name} must be a positive integer")
+    return threshold
+
+
 def _coerce_day_distance(start_day: int, end_day: int) -> int:
     """Return forward distance in days in a weekly cycle."""
     return (end_day - start_day) % 7
@@ -526,6 +565,7 @@ def _load_specials_freshness_config() -> dict[str, Any]:
             "default": {
                 "start_day": "Wednesday",
                 "force_send_day": "Saturday",
+                "minimum_offer_changes": 3,
             }
         },
         "email": {
@@ -580,7 +620,7 @@ def _resolve_vendor_schedule(
     config: dict[str, Any],
     vendor: str,
 ) -> VendorScheduleWindow:
-    """Resolve effective start and force-send weekdays for one vendor."""
+    """Resolve effective freshness schedule and churn threshold for one vendor."""
     vendors_cfg = config.get("vendors", {}) if isinstance(config, dict) else {}
     default_cfg = (
         vendors_cfg.get("default", {}) if isinstance(vendors_cfg, dict) else {}
@@ -596,7 +636,19 @@ def _resolve_vendor_schedule(
         field_name=f"{vendor} force_send_day",
         default=5,
     )
-    return VendorScheduleWindow(start_day=start_day, force_send_day=force_send_day)
+    minimum_offer_changes = _coerce_minimum_offer_changes(
+        vendor_cfg.get(
+            "minimum_offer_changes",
+            default_cfg.get("minimum_offer_changes"),
+        ),
+        field_name=f"{vendor} minimum_offer_changes",
+        default=3,
+    )
+    return VendorScheduleWindow(
+        start_day=start_day,
+        force_send_day=force_send_day,
+        minimum_offer_changes=minimum_offer_changes,
+    )
 
 
 def _prepare_vendor_processing_plans(
@@ -812,6 +864,141 @@ def _offer_freshness_sort_key(offer: Offer) -> tuple[object, ...]:
         barcode or "",
         (offer.url or "").strip().lower(),
     )
+
+
+def _offer_physical_catalogue_key(offer: Offer) -> tuple[str, ...]:
+    """Return the best available physical-product key for one vendor catalogue."""
+    barcode = _offer_freshness_barcode(offer)
+    if barcode is not None:
+        return ("barcode", barcode)
+    return _offer_freshness_identity(offer)
+
+
+def _flatten_vendor_catalogue(
+    vendor_offers: dict[str, list[Offer]],
+) -> list[Offer]:
+    """Return one deterministic copy of each physical offer across watch items.
+
+    Searches for overlapping watchlist items can return the same physical offer
+    more than once. Freshness is a vendor decision, so counting those copies
+    would make one API result look like several catalogue changes. A barcode is
+    the strongest identity; without one, normalized title, brand, and size are
+    the stable fallback used by the existing matching rules.
+    """
+    barcoded_offers: dict[str, Offer] = {}
+    barcodes_by_identity: dict[tuple[str, ...], set[str]] = {}
+    barcodeless_offers: dict[tuple[str, ...], Offer] = {}
+    for offers in vendor_offers.values():
+        for offer in offers:
+            barcode = _offer_freshness_barcode(offer)
+            identity = _offer_freshness_identity(offer)
+            if barcode is not None:
+                barcodes_by_identity.setdefault(identity, set()).add(barcode)
+                previous = barcoded_offers.get(barcode)
+                if previous is None or _offer_freshness_sort_key(
+                    offer
+                ) < _offer_freshness_sort_key(previous):
+                    barcoded_offers[barcode] = offer
+                continue
+
+            key = _offer_physical_catalogue_key(offer)
+            previous = barcodeless_offers.get(key)
+            if previous is None or _offer_freshness_sort_key(
+                offer
+            ) < _offer_freshness_sort_key(previous):
+                barcodeless_offers[key] = offer
+
+    # An API response can return the same physical item in two overlapping
+    # searches, with one copy omitting its barcode. When its details identify
+    # exactly one barcoded catalogue item, treat that barcode-less copy as an
+    # alias rather than a catalogue addition. Do not merge it when the same
+    # details have multiple different barcodes: that ambiguity must not weaken
+    # the barcode-first conflicting-barcode safeguard.
+    unambiguous_barcodeless_offers = [
+        offer
+        for identity, offer in barcodeless_offers.items()
+        if len(barcodes_by_identity.get(identity, set())) != 1
+    ]
+    return sorted(
+        [*barcoded_offers.values(), *unambiguous_barcodeless_offers],
+        key=_offer_freshness_sort_key,
+    )
+
+
+def _summarise_vendor_freshness(
+    reference_offers: dict[str, list[Offer]],
+    current_offers: dict[str, list[Offer]],
+) -> VendorFreshnessSummary:
+    """Compare one vendor's catalogues using barcode-first product matching.
+
+    Matching mirrors the previous price comparison: a reference barcode must
+    match the same current barcode and therefore never falls back to details on
+    a conflict. A reference offer without a barcode may match title/brand/size
+    details, including when the current API response has since supplied a
+    barcode. Each successful match is consumed once. The remaining distinct
+    current and reference offers are physical additions and removals.
+    """
+    reference_catalogue = _flatten_vendor_catalogue(reference_offers)
+    unmatched_current = _flatten_vendor_catalogue(current_offers)
+    matched_offer_count = 0
+    price_change_count = 0
+    removed_offer_count = 0
+
+    for reference_offer in reference_catalogue:
+        reference_barcode = _offer_freshness_barcode(reference_offer)
+        reference_identity = _offer_freshness_identity(reference_offer)
+        match_index: int | None = None
+        if reference_barcode is not None:
+            match_index = next(
+                (
+                    index
+                    for index, current_offer in enumerate(unmatched_current)
+                    if _offer_freshness_barcode(current_offer) == reference_barcode
+                ),
+                None,
+            )
+        else:
+            match_index = next(
+                (
+                    index
+                    for index, current_offer in enumerate(unmatched_current)
+                    if _offer_freshness_identity(current_offer) == reference_identity
+                ),
+                None,
+            )
+
+        if match_index is None:
+            removed_offer_count += 1
+            continue
+
+        current_offer = unmatched_current.pop(match_index)
+        matched_offer_count += 1
+        if round(current_offer.price, 2) != round(reference_offer.price, 2):
+            price_change_count += 1
+
+    return VendorFreshnessSummary(
+        matched_offer_count=matched_offer_count,
+        price_change_count=price_change_count,
+        added_offer_count=len(unmatched_current),
+        removed_offer_count=removed_offer_count,
+    )
+
+
+def _decide_vendor_freshness(
+    reference_hash: object,
+    comparison: VendorFreshnessSummary,
+    minimum_offer_changes: int,
+) -> tuple[bool, str]:
+    """Return the single freshness decision and evidence label for a vendor."""
+    if reference_hash is None:
+        # The first usable snapshot establishes the delivery baseline, so it
+        # remains immediately eligible instead of waiting for later churn.
+        return True, "bootstrap"
+    if comparison.price_change_count:
+        return True, "price_change"
+    if comparison.offer_change_count >= minimum_offer_changes:
+        return True, "catalogue_churn"
+    return False, "below_catalogue_churn_threshold"
 
 
 def _vendor_offer_price_signature(
@@ -2771,7 +2958,8 @@ def main(
         LOGGER.info(
             "event=vendor_plan vendor=%s status=%s within_window=%s "
             "should_query=%s start_day=%s force_send_day=%s cycle_anchor=%s "
-            "changed_this_cycle=%s sent_this_cycle=%s last_checked=%s last_sent=%s",
+            "minimum_offer_changes=%s changed_this_cycle=%s sent_this_cycle=%s "
+            "last_checked=%s last_sent=%s",
             vendor,
             plan_status,
             plan.within_window,
@@ -2779,6 +2967,7 @@ def main(
             _weekday_label(plan.schedule.start_day),
             _weekday_label(plan.schedule.force_send_day),
             state.get("cycle_anchor"),
+            plan.schedule.minimum_offer_changes,
             state.get("changed_this_cycle"),
             state.get("sent_this_cycle"),
             state.get("last_checked_date"),
@@ -2862,16 +3051,13 @@ def main(
 
         reference_hash = state.get("reference_hash")
         reference_offers = _restore_vendor_offers(state.get("reference_payload"))
-        if reference_offers:
-            reference_price_hash = _vendor_offer_price_signature(
-                reference_offers, vendor_offers
-            )
-            current_price_hash = _vendor_offer_price_signature(
-                vendor_offers, reference_offers
-            )
-            has_changed = current_price_hash != reference_price_hash
-        else:
-            has_changed = reference_hash is None or current_hash != reference_hash
+        comparison = _summarise_vendor_freshness(reference_offers, vendor_offers)
+        minimum_offer_changes = plan.schedule.minimum_offer_changes
+        has_changed, freshness_reason = _decide_vendor_freshness(
+            reference_hash,
+            comparison,
+            minimum_offer_changes,
+        )
         if has_changed:
             state["changed_this_cycle"] = True
             state["pending_hash"] = current_hash
@@ -2879,10 +3065,19 @@ def main(
             vendor_send_modes[vendor] = "success"
             LOGGER.info(
                 "event=vendor_freshness vendor=%s freshness=fresh send_mode=success "
-                "watch_items=%s offers=%s",
+                "reason=%s watch_items=%s offers=%s matched_offers=%s "
+                "price_changes=%s added_offers=%s removed_offers=%s "
+                "offer_churn=%s minimum_offer_changes=%s",
                 vendor,
+                freshness_reason,
                 len(vendor_watch_names),
                 vendor_offer_count,
+                comparison.matched_offer_count,
+                comparison.price_change_count,
+                comparison.added_offer_count,
+                comparison.removed_offer_count,
+                comparison.offer_change_count,
+                minimum_offer_changes,
             )
             continue
 
@@ -2890,18 +3085,37 @@ def main(
             vendor_send_modes[vendor] = "forced_send"
             LOGGER.info(
                 "event=vendor_freshness vendor=%s freshness=stale "
-                "send_mode=forced_send watch_items=%s offers=%s",
+                "send_mode=forced_send reason=%s watch_items=%s offers=%s "
+                "matched_offers=%s price_changes=%s added_offers=%s "
+                "removed_offers=%s offer_churn=%s minimum_offer_changes=%s",
                 vendor,
+                freshness_reason,
                 len(vendor_watch_names),
                 vendor_offer_count,
+                comparison.matched_offer_count,
+                comparison.price_change_count,
+                comparison.added_offer_count,
+                comparison.removed_offer_count,
+                comparison.offer_change_count,
+                minimum_offer_changes,
             )
         else:
             LOGGER.info(
                 "event=vendor_freshness vendor=%s freshness=stale "
-                "send_mode=retry_later watch_items=%s offers=%s force_send_day=%s",
+                "send_mode=retry_later reason=%s watch_items=%s offers=%s "
+                "matched_offers=%s price_changes=%s added_offers=%s "
+                "removed_offers=%s offer_churn=%s minimum_offer_changes=%s "
+                "force_send_day=%s",
                 vendor,
+                freshness_reason,
                 len(vendor_watch_names),
                 vendor_offer_count,
+                comparison.matched_offer_count,
+                comparison.price_change_count,
+                comparison.added_offer_count,
+                comparison.removed_offer_count,
+                comparison.offer_change_count,
+                minimum_offer_changes,
                 _weekday_label(plan.schedule.force_send_day),
             )
 

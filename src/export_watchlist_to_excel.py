@@ -88,7 +88,10 @@ def _optional_text_field(item: dict, key: str) -> str | None:
 def _optional_email_indices_field(item: dict) -> str | None:
     """Return normalized email indices from either YAML key shape."""
     if "email_indices" in item:
-        return _join_keywords(item.get("email_indices"))
+        value = item.get("email_indices")
+        if isinstance(value, list) and not value:
+            return "[]"
+        return _join_keywords(value)
     if "email_index" in item:
         return _join_keywords(item.get("email_index"))
     return None
